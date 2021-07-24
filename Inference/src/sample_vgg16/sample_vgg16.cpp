@@ -2,7 +2,34 @@
 A sample for vgg16 inference
 */
 
+#include <cuda_runtime.h>
 #include "sample_vgg16.h"
+
+Profiler::Profiler(
+const ProfilerConfig& profiler_config, const size_t& min_batch_size,
+const size_t& opt_batch_size, const size_t& max_batch_size,
+const Severity severity)
+: min_batch_size_(min_batch_size), opt_batch_size_(opt_batch_size),
+  max_batch_size_(max_batch_size)
+{
+    cudaStreamCreate(&(stream_[0]));
+    cudaStreamCreate(&(stream_[1]));
+    CHECK(cudaEventCreate(&start_));
+    CHECK(cudaEventCreate(&stop_));
+
+    profiler_config_ = profiler_config;
+    size_t sub_model_cnt = profiler_config_.getSegNum();
+    size_t ee_model_cnt = profiler_config_.geteeNum();
+        
+    for (size_t i = 0; i < sub_model_cnt; i++) {
+        CHECK(cudaEventCreate(&ms_stop_[i]));
+    }
+    for (size_t i = 0; i < ee_model_cnt; i++) {
+        CHECK(cudaEventCreate(&ee_stop_[i]));
+    }
+        
+    sample::gLogger.setReportableSeverity(severity);
+}
 
 bool Profiler::build()
 {
@@ -124,7 +151,7 @@ bool Profiler::constructSubNet(
 {
     auto profile = builder->createOptimizationProfile();
     samplesCommon::OnnxSampleParams params;
-    params.dataDirs.emplace_back("samples/opensource/VGG16/vgg_model/cifar10");
+    params.dataDirs.emplace_back("src/sample_vgg16/vgg_model/cifar10");
     //data_dir.push_back("samples/VGG16/");
     auto parsed = parser->parseFromFile(locateFile("vgg16_cifar10_"+to_string(model_index)+".onnx", params.dataDirs).c_str(),
     static_cast<int>(sample::gLogger.getReportableSeverity()));
@@ -166,7 +193,7 @@ bool Profiler::constructeeNet(
 {
     auto profile = builder->createOptimizationProfile();
     samplesCommon::OnnxSampleParams params;
-    params.dataDirs.emplace_back("samples/opensource/VGG16/vgg_model/cifar10");
+    params.dataDirs.emplace_back("src/sample_vgg16/vgg_model/cifar10");
     //data_dir.push_back("samples/VGG16/");
     auto parsed = parser->parseFromFile(locateFile("vgg16_cifar10_ee_"+to_string(model_index)+".onnx", params.dataDirs).c_str(),
     static_cast<int>(sample::gLogger.getReportableSeverity()));
@@ -384,40 +411,6 @@ bool Profiler::infer(const size_t& num_test, const size_t& batch_size)
         std::cout << "--------------------------------------------------" << std::endl;
     }
 
-    /*
-    for (size_t i = 0; i < ee_model_cnt; i++){
-        CHECK(cudaStreamWaitEvent(stream_[1], ms_stop_[i]));
-        std::cout << "Early exit: " + to_string(i) << std::endl;
-        auto status = ee_contexts_[i]->enqueueV2(ee_buffer_manager_[i].getDeviceBindings().data(), stream_[1], nullptr);
-        if (!status) {
-            std::cout << "Error when inference " << i << "-th ee model" << std::endl;
-            return false;
-        }
-        CHECK(cudaEventRecord(ee_stop_[i], stream_[1]));
-    }
-    
-    for (size_t i = 0; i < sub_model_cnt-1; i++){
-        if (i == 2 || i == 4){
-            int map_i = i/2-1;
-            CHECK(cudaStreamWaitEvent(stream_[0], ee_stop_[map_i]));
-        }
-        //std::cout << i << std::endl;
-        auto status = sub_contexts_[i]->enqueueV2(sub_buffer_manager_[i].getDeviceBindings().data(), stream_[0], nullptr);
-        if (!status) {
-            std::cout << "Error when inference " << i << "-th sub model" << std::endl;
-            return false;
-        }
-        std::cout << "Main stage: " + to_string(i) << std::endl;
-
-        if (i == 0||i == 2){
-            void* eenet_dstPtr = ee_buffer_manager_[i/2].getDeviceBuffer(ee_input_tensor_names_[i/2]);
-            cudaMemcpy(eenet_dstPtr, srcPtr, byteSize, memcpyType);
-        }
-        CHECK(cudaEventRecord(ms_stop_[i], stream_[0]));
-
-    }
-    */
-
     float milli_sec_1 = 0;
     CHECK(cudaEventElapsedTime(&milli_sec_1, ms_stop_[0], ms_stop_[1]));
     std::cout << "Elapsed time 1: " << milli_sec_1 << std::endl;
@@ -538,7 +531,7 @@ ProfilerConfig getInstConfig(const rapidjson::Document& config_doc)
 int main(int argc, char** argv)
 {
     //std::string config_path = argv[1];
-    std::string config_path = "../../samples/opensource/VGG16/profiler_config.json";
+    std::string config_path = "../profiler_config.json";
     //std::string config_path = "profiler_config.json";
     std::cout << config_path << std::endl;
     FILE* config_fp = fopen(config_path.c_str(), "r");

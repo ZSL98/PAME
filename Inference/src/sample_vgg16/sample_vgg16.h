@@ -121,33 +121,9 @@ class Profiler {
 
 public:
     Profiler(
-    const ProfilerConfig& profiler_config, const size_t& min_batch_size = 1,
-    const size_t& opt_batch_size = 1, const size_t& max_batch_size = 1,
-    const Severity severity = Severity::kWARNING)
-    : min_batch_size_(min_batch_size), opt_batch_size_(opt_batch_size),
-      max_batch_size_(max_batch_size)
-    {
-        //stream_.resize(2);
-        //CHECK(cudaStreamCreate(&stream_[0]));
-        //CHECK(cudaStreamCreate(&stream_[1]));
-        cudaStreamCreate(&(stream_[0]));
-        cudaStreamCreate(&(stream_[1]));
-        CHECK(cudaEventCreate(&start_));
-        CHECK(cudaEventCreate(&stop_));
-
-        profiler_config_ = profiler_config;
-        size_t sub_model_cnt = profiler_config_.getSegNum();
-        size_t ee_model_cnt = profiler_config_.geteeNum();
-        
-        for (size_t i = 0; i < sub_model_cnt; i++) {
-            CHECK(cudaEventCreate(&ms_stop_[i]));
-        }
-        for (size_t i = 0; i < ee_model_cnt; i++) {
-            CHECK(cudaEventCreate(&ee_stop_[i]));
-        }
-        
-        sample::gLogger.setReportableSeverity(severity);
-    }
+      const ProfilerConfig& profiler_config, const size_t& min_batch_size = 1,
+      const size_t& opt_batch_size = 1, const size_t& max_batch_size = 1,
+      const Severity severity = Severity::kWARNING);
 
     bool build();
 
