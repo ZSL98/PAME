@@ -39,9 +39,7 @@ bool Profiler::build()
     sub_contexts_.clear();
     ee_engines_.clear();
     ee_contexts_.clear();
-    //ee_engines_.resize(ee_model_cnt);
-    //ee_contexts_.resize(ee_model_cnt);
-    //sub_buffer_manager_.resize(sub_model_cnt);
+
     sub_input_dims_.resize(sub_model_cnt);
     sub_input_tensor_names_.resize(sub_model_cnt);
     sub_output_dims_.resize(sub_model_cnt);
@@ -151,9 +149,9 @@ bool Profiler::constructSubNet(
 {
     auto profile = builder->createOptimizationProfile();
     samplesCommon::OnnxSampleParams params;
-    params.dataDirs.emplace_back("src/sample_vgg16/vgg_model/cifar10");
+    params.dataDirs.emplace_back("src/sample_vgg16/vgg_model/cifar10/onnx_main_arc");
     //data_dir.push_back("samples/VGG16/");
-    auto parsed = parser->parseFromFile(locateFile("vgg16_cifar10_"+to_string(model_index)+".onnx", params.dataDirs).c_str(),
+    auto parsed = parser->parseFromFile(locateFile("main_arch_"+to_string(model_index)+".onnx", params.dataDirs).c_str(),
     static_cast<int>(sample::gLogger.getReportableSeverity()));
     if (!parsed) {
         return false;
@@ -193,9 +191,9 @@ bool Profiler::constructeeNet(
 {
     auto profile = builder->createOptimizationProfile();
     samplesCommon::OnnxSampleParams params;
-    params.dataDirs.emplace_back("src/sample_vgg16/vgg_model/cifar10");
+    params.dataDirs.emplace_back("src/sample_vgg16/vgg_model/cifar10/onnx_IC");
     //data_dir.push_back("samples/VGG16/");
-    auto parsed = parser->parseFromFile(locateFile("vgg16_cifar10_ee_"+to_string(model_index)+".onnx", params.dataDirs).c_str(),
+    auto parsed = parser->parseFromFile(locateFile("IC_"+to_string(model_index)+".onnx", params.dataDirs).c_str(),
     static_cast<int>(sample::gLogger.getReportableSeverity()));
     if (!parsed) {
         return false;

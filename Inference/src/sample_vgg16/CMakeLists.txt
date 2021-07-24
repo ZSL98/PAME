@@ -45,8 +45,6 @@ target_include_directories(sample
     PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
-message(STATUS ${CUDA_TOOLKIT_ROOT_DIR})
-
 find_library_create_target(nvinfer nvinfer SHARED ${TRT_LIB_DIR})
 find_library_create_target(nvonnxparser nvonnxparser SHARED ${TRT_LIB_DIR})
 find_library(CUDNN_LIB cudnn HINTS ${CUDA_TOOLKIT_ROOT_DIR} ${CUDNN_ROOT_DIR} PATH_SUFFIXES lib64 lib)

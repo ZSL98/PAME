@@ -146,8 +146,8 @@ private:
     //std::vector<cudaEvent_t> ms_stop_;
     //std::vector<cudaEvent_t> ee_stop_;
     cudaStream_t stream_[2];
-    cudaEvent_t ms_stop_[6];
-    cudaEvent_t ee_stop_[2];
+    cudaEvent_t ms_stop_[11];
+    cudaEvent_t ee_stop_[6];
     cudaEvent_t start_;
     cudaEvent_t stop_;
     // std::vector<cudaEvent_t> events_;
