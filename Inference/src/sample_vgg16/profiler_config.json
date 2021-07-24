@@ -1,0 +1,16 @@
+{
+    "name": "vgg_16",
+    "dir": "/root/models",
+    "seg_num": 6,
+    "ee_num": 2,
+    "seg_files": ["vgg16_1", "vgg16_2", "vgg16_3", "vgg16_4", "vgg16_5", "vgg16_6"],
+    "ee_files": ["vgg16_ee_1", "vgg16_ee_3"],
+    "min_bs": 1,
+    "opt_bs": 1,
+    "max_bs": 64,
+    "log_lvl": "INFO",
+    "cur_bs": 1,
+    "test_iter": 1,
+    "fp16": false
+  }
+  
