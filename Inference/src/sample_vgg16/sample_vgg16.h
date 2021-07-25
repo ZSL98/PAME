@@ -178,15 +178,11 @@ private:
     std::vector<size_t> ee_batch_size;
     std::vector<size_t> sub_batch_size;
     std::vector<int> stage_type{0, 1, 2, 1, 2, 1, 1, 2, 1, 1, 3};
-    std::map<int, std::string> subToEE;
+    std::map<int, int> subToEE;
 
     std::vector<uint8_t> cifarbinary;
-    // std::shared_ptr<ManagedBuffer> input_buffer_;
-    // std::shared_ptr<ManagedBuffer> output_buffer_;
 
     //Logger gLogger_;
-    bool memcpytoNextMS(size_t src_i, size_t dst_i);
-    bool memcpytoNextEE(size_t src_i, size_t dst_i);
 
     bool constructSubNet(
         TRTUniquePtr<nvinfer1::IBuilder>& builder,
@@ -203,6 +199,7 @@ private:
     std::vector<void*> getDeviceBindings(const size_t& sub_index);
     bool processInput(const samplesCommon::BufferManager& buffer);
     bool verifyOutput(const samplesCommon::BufferManager& buffer);
+    bool controller(const int stage_idx, const int ee_idx);
 
     bool setBindingDimentions(const size_t& batch_size);
 

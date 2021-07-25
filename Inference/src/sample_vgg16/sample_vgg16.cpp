@@ -233,7 +233,6 @@ bool Profiler::infer(const size_t& num_test, const size_t& batch_size)
     sub_batch_size.resize(sub_model_cnt);
     size_t init_batch_size = 32;
     sub_batch_size[0] = init_batch_size;
-    sub_batch_size[1] = init_batch_size;
     ee_batch_size[0] = init_batch_size;
 
     subToEE[1] = 0;
@@ -248,7 +247,7 @@ bool Profiler::infer(const size_t& num_test, const size_t& batch_size)
     //CHECK(cudaEventRecord(start_, stream_[0]));
 
     for (size_t i = 0; i < sub_model_cnt; i++){
-        std::cout << i << std::endl;
+        std::cout << "Stage index: " << i << std::endl;
 
         // Start stage: stage_type = 0
         if (stage_type[i] == 0){
@@ -259,6 +258,7 @@ bool Profiler::infer(const size_t& num_test, const size_t& batch_size)
             sub_contexts_[i]->setBindingDimensions(0, sub_input_dims_[i]);
             samplesCommon::BufferManager tmp_buffer(sub_engines_[i], sub_batch_size[i]);
             sub_buffer_manager_.emplace_back(std::move(tmp_buffer));
+            sub_batch_size[i+1] = sub_batch_size[i];
 
             if (!processInput(sub_buffer_manager_[0]))
             {
@@ -282,11 +282,34 @@ bool Profiler::infer(const size_t& num_test, const size_t& batch_size)
             CHECK(cudaStreamWaitEvent(stream_[1], ms_stop_[i-1]));
             size_t map_i = subToEE[i];
 
-            //construct the ee buffers
+            // construct the sub buffer
+            sub_input_dims_[i].d[0] = sub_batch_size[i];
+            sub_contexts_[i]->setBindingDimensions(0, sub_input_dims_[i]);
             std::shared_ptr<samplesCommon::ManagedBuffer> srcPtr = sub_buffer_manager_[i-1].getOutputBuffer();
-            samplesCommon::BufferManager tmp_buffer1(ee_engines_[map_i], ee_batch_size[map_i], srcPtr);
-            std::cout << "Buffer management of the " << map_i << "-th ee buffer done. \n" << std::endl;
-            ee_buffer_manager_.emplace_back(std::move(tmp_buffer1));
+            if (stage_type[i-1] == 1){
+                // Two sources
+                samplesCommon::BufferManager tmp_buffer1(sub_engines_[i], sub_batch_size[i], srcPtr, &ee_indicator[subToEE[i-1]]);
+                sub_buffer_manager_.emplace_back(std::move(tmp_buffer1));
+            }
+            else {
+                // One source
+                samplesCommon::BufferManager tmp_buffer1(sub_engines_[i], sub_batch_size[i], srcPtr);
+                sub_buffer_manager_.emplace_back(std::move(tmp_buffer1));
+            }
+            //std::cout << "Buffer management of the " << i << "-th sub buffer done. " << std::endl;
+
+            auto status3 = sub_contexts_[i]->enqueueV2(sub_buffer_manager_[i].getDeviceBindings().data(), stream_[0], nullptr);
+            if (!status3) {
+                std::cout << "Error when inference " << i << "-th sub model" << std::endl;
+                return false;
+            }
+            CHECK(cudaEventRecord(ms_stop_[i], stream_[0]));
+
+            //construct the ee buffer (the same buffer as the input of the parallel main arch buffer)
+            ee_batch_size[map_i] = sub_batch_size[i];
+            std::shared_ptr<samplesCommon::ManagedBuffer> srcPtr_parallel = sub_buffer_manager_[i].getInputBuffer();
+            samplesCommon::BufferManager tmp_buffer2(ee_engines_[map_i], ee_batch_size[map_i], srcPtr_parallel);
+            ee_buffer_manager_.emplace_back(std::move(tmp_buffer2));
 
             ee_input_dims_[map_i].d[0] = ee_batch_size[map_i];
             ee_contexts_[map_i]->setBindingDimensions(0, ee_input_dims_[map_i]);
@@ -296,36 +319,13 @@ bool Profiler::infer(const size_t& num_test, const size_t& batch_size)
                 return false;
             }
 
-            ee_indicator[map_i].resize(ee_batch_size[map_i]);
-            std::shared_ptr<samplesCommon::ManagedBuffer> eeResultPtr = ee_buffer_manager_[map_i].getOutputBuffer();
-            const cudaMemcpyKind memcpyType = cudaMemcpyDeviceToHost;
-            cudaMemcpy(eeResultPtr->hostBuffer.data(), eeResultPtr->deviceBuffer.data(),
-                        eeResultPtr->hostBuffer.nbBytes(), memcpyType);
-            float *res = static_cast<float*>(eeResultPtr->hostBuffer.data());
-            std::cout << "Indicator length: " << ee_batch_size[map_i] << std::endl;
-            for (size_t j = 0; j < ee_batch_size[map_i]; j++){
-                int maxposition = std::max_element(res+10*j, res+10*j + 10) - (res+10*j);
-                ee_indicator[map_i][j] = (*(res+10*j + maxposition) > 0.035) ? 1 : 0;
-                //std::cout << "Result: " << *(res+10*j+maxposition) << "  Indicator: " << ee_indicator[map_i][j] << std::endl;
-            }
-            sub_batch_size[i+1] = std::accumulate(ee_indicator[map_i].begin(), ee_indicator[map_i].end(), 0);
-            std::cout << "Batch size of next stage: " << sub_batch_size[i+1] << std::endl;
-
-            CHECK(cudaEventRecord(ee_stop_[i-1], stream_[1]));
-
-            //construct the sub buffers
-            sub_input_dims_[i].d[0] = sub_batch_size[i];
-            sub_contexts_[i]->setBindingDimensions(0, sub_input_dims_[i]);
-            samplesCommon::BufferManager tmp_buffer2(sub_engines_[i], sub_batch_size[i], srcPtr);
-            sub_buffer_manager_.emplace_back(std::move(tmp_buffer2));
-            std::cout << "Buffer management of the " << i << "-th sub buffer done. " << std::endl;
-
-            auto status3 = sub_contexts_[i]->enqueueV2(sub_buffer_manager_[i].getDeviceBindings().data(), stream_[0], nullptr);
-            if (!status3) {
-                std::cout << "Error when inference " << i << "-th sub model" << std::endl;
+            auto controlled = controller(i, map_i);
+            if (!controlled) {
+                std::cout << "Controller " << i << " broken" << std::endl;
                 return false;
-            }
-            CHECK(cudaEventRecord(ms_stop_[i], stream_[0]));
+            }       
+
+            CHECK(cudaEventRecord(ee_stop_[subToEE[i]], stream_[1]));
         }
         // Single Main Arch Stage: stage_type = 2
         else if (stage_type[i] == 2){
@@ -337,12 +337,11 @@ bool Profiler::infer(const size_t& num_test, const size_t& batch_size)
 
             std::shared_ptr<samplesCommon::ManagedBuffer> srcPtr = sub_buffer_manager_[i-1].getOutputBuffer();
             //std::shared_ptr<samplesCommon::ManagedBuffer> eeResultPtr = ee_buffer_manager_[i/2-1].getOutputBuffer();
-            samplesCommon::BufferManager tmp_buffer(sub_engines_[i], sub_batch_size[i], srcPtr, &ee_indicator[i/2-1]);
+            samplesCommon::BufferManager tmp_buffer(sub_engines_[i], sub_batch_size[i], srcPtr, &ee_indicator[subToEE[i-1]]);
             sub_buffer_manager_.emplace_back(std::move(tmp_buffer));
-            std::cout << "Buffer management of the " << i << "-th sub buffer done. " << std::endl;
+            //std::cout << "Buffer management of the " << i << "-th sub buffer done. " << std::endl;
 
             sub_batch_size[i+1] = sub_batch_size[i];
-            if (i == 2) {ee_batch_size[i/2] = sub_batch_size[i];}
 
             auto status4 = sub_contexts_[i]->enqueueV2(sub_buffer_manager_[i].getDeviceBindings().data(), stream_[0], nullptr);
             if (!status4) {
@@ -357,72 +356,60 @@ bool Profiler::infer(const size_t& num_test, const size_t& batch_size)
             sub_input_dims_[i].d[0] = sub_batch_size[i];
             sub_contexts_[i]->setBindingDimensions(0, sub_input_dims_[i]);
             std::shared_ptr<samplesCommon::ManagedBuffer> srcPtr = sub_buffer_manager_[i-1].getOutputBuffer();
-            samplesCommon::BufferManager tmp_buffer(sub_engines_[i], batch_size, srcPtr);
+            samplesCommon::BufferManager tmp_buffer(sub_engines_[i], sub_batch_size[i], srcPtr);
             sub_buffer_manager_.emplace_back(std::move(tmp_buffer));
-            std::cout << "Buffer management of the " << i << "-th sub buffer done. " << std::endl;
+            //std::cout << "Buffer management of the " << i << "-th sub buffer done. " << std::endl;
 
             auto status6 = sub_contexts_[i]->enqueueV2(sub_buffer_manager_[i].getDeviceBindings().data(), stream_[0], nullptr);
             if (!status6) {
                 std::cout << "Error when inference " << i << "-th sub model" << std::endl;
                 return false;
             }
+            std::cout << "Inference finished!" << std::endl;
             CHECK(cudaEventRecord(ms_stop_[i], stream_[0]));
             CHECK(cudaEventRecord(stop_, stream_[0]));
             CHECK(cudaEventSynchronize(stop_));
         }
-        std::cout << "--------------------------------------------------" << std::endl;
+        std::cout << "=========================================================" << std::endl;
     }
 
-    float milli_sec_1 = 0;
-    CHECK(cudaEventElapsedTime(&milli_sec_1, ms_stop_[0], ms_stop_[1]));
-    std::cout << "Elapsed time 1: " << milli_sec_1 << std::endl;
+    std::vector<float> milli_sec;
+    milli_sec.resize(11);
 
-    float milli_sec_2 = 0;
-    CHECK(cudaEventElapsedTime(&milli_sec_2, ms_stop_[1], ms_stop_[2]));
-    std::cout << "Elapsed time 2: " << milli_sec_2 << std::endl; 
-
-    float milli_sec_3 = 0;
-    CHECK(cudaEventElapsedTime(&milli_sec_3, ms_stop_[2], ms_stop_[3]));
-    std::cout << "Elapsed time 3: " << milli_sec_3 << std::endl;
-
-    float milli_sec_4 = 0;
-    CHECK(cudaEventElapsedTime(&milli_sec_4, ms_stop_[3], ms_stop_[5]));
-    std::cout << "Elapsed time 4: " << milli_sec_4 << std::endl;
+    for (int i=0; i < 10; i++) {
+        CHECK(cudaEventElapsedTime(&milli_sec[i], ms_stop_[i], ms_stop_[i+1]));
+        std::cout << "Elapsed time " << i+1 << ": " << milli_sec[i] << std::endl; 
+    }
         
-    float milli_sec_5 = 0;
-    CHECK(cudaEventElapsedTime(&milli_sec_5, ms_stop_[0], stop_));
-    std::cout << "Total elapsed time: " << milli_sec_5 << std::endl;
+    float total_elapsed_time = 0;
+    CHECK(cudaEventElapsedTime(&total_elapsed_time, ms_stop_[0], stop_));
+    std::cout << "Total elapsed time: " << total_elapsed_time << std::endl;
 
-    return true;
-}
-
-bool Profiler::memcpytoNextMS(size_t src_i, size_t dst_i){
-    std::cout << "memcpytoNextMS begin! Source: " << src_i << std::endl;
-    //std::shared_ptr<ManagedBuffer> srcPtr = sub_buffer_manager_[src_i].getOutputBuffer();
-    //const void* srcPtr = sub_buffer_manager_[src_i].getDeviceBuffer(sub_output_tensor_names_[src_i][0]);
-
-    void* subnet_dstPtr = sub_buffer_manager_[dst_i].getDeviceBuffer(sub_input_tensor_names_[dst_i]);
-    const void* srcPtr = sub_buffer_manager_[src_i].getDeviceBuffer(sub_output_tensor_names_[src_i]);
-    const size_t byteSize = sub_buffer_manager_[src_i].size(sub_output_tensor_names_[src_i]);
-    const cudaMemcpyKind memcpyType = cudaMemcpyDeviceToDevice;
-    cudaMemcpy(subnet_dstPtr, srcPtr, byteSize, memcpyType);
-    std::cout << "memcpytoNextMS finished! Source: " << src_i << std::endl;
-    return true;
-}
-bool Profiler::memcpytoNextEE(size_t src_i, size_t dst_i){
-    std::cout << "memcpytoNextEE begin! Source: " << src_i << std::endl;
-    void* ee_dstPtr = ee_buffer_manager_[dst_i].getDeviceBuffer(ee_input_tensor_names_[dst_i]);
-    const void* srcPtr = sub_buffer_manager_[src_i].getDeviceBuffer(sub_output_tensor_names_[src_i]);
-    const size_t byteSize = sub_buffer_manager_[src_i].size(sub_output_tensor_names_[src_i]);
-    const cudaMemcpyKind memcpyType = cudaMemcpyDeviceToDevice;
-    cudaMemcpy(ee_dstPtr, srcPtr, byteSize, memcpyType);
-    std::cout << "memcpytoNextEE finished! Source: " << src_i << std::endl;
     return true;
 }
 
 std::vector<void*> Profiler::getDeviceBindings(const size_t& model_index)
 {
     return sub_buffer_manager_[model_index].getDeviceBindings();
+}
+
+bool Profiler::controller(const int stage_idx, const int ee_idx)
+{
+    ee_indicator[ee_idx].resize(ee_batch_size[ee_idx]);
+    std::shared_ptr<samplesCommon::ManagedBuffer> eeResultPtr = ee_buffer_manager_[ee_idx].getOutputBuffer();
+    const cudaMemcpyKind memcpyType = cudaMemcpyDeviceToHost;
+    cudaMemcpy(eeResultPtr->hostBuffer.data(), eeResultPtr->deviceBuffer.data(),
+                eeResultPtr->hostBuffer.nbBytes(), memcpyType);
+    float *res = static_cast<float*>(eeResultPtr->hostBuffer.data());
+    //std::cout << "Indicator length: " << ee_batch_size[ee_idx] << std::endl;
+    for (size_t j = 0; j < ee_batch_size[ee_idx]; j++){
+        int maxposition = std::max_element(res+10*j, res+10*j + 10) - (res+10*j);
+        ee_indicator[ee_idx][j] = (*(res+10*j + maxposition) > 0.035) ? 1 : 0;
+    }
+    sub_batch_size[stage_idx+1] = std::accumulate(ee_indicator[ee_idx].begin(), ee_indicator[ee_idx].end(), 0);
+    //std::cout << "Batch size of next stage: " << sub_batch_size[stage_idx+1] << std::endl;
+
+    return true;
 }
 
 bool Profiler::verifyOutput(const samplesCommon::BufferManager& buffer)

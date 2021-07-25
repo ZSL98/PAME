@@ -342,38 +342,22 @@ public:
         // assert(engine->hasImplicitBatchDimension() || mBatchSize == 0);
         // Create host and device buffers
         for (int i = 0; i < mEngine->getNbBindings(); i++)
-        {
-            if (i == 0) {
-                std::cout << "Input buffer initializing..." << std::endl;
-            }
-            else if (i != 0) {
-                std::cout << "+++++++++++++" << std::endl;
-                std::cout << "Output buffer initializing..." << std::endl;
-            }
-            
+        {            
             if (indicatorPtr && srcPtr && i == 0) {
-            // Two sources from the last ee module and the last sub module.
-                std::cout << "Two sources" << std::endl;
-                // const cudaMemcpyKind memcpyType = cudaMemcpyDeviceToHost;
-                // cudaMemcpy(eeResultPtr->hostBuffer.data(), eeResultPtr->deviceBuffer.data(),
-                //         eeResultPtr->hostBuffer.nbBytes(), memcpyType);
-                // float *res = static_cast<float*>(eeResultPtr->hostBuffer.data());
-                // std::cout << "Memcpy1: " << *res << std::endl;
+                // Two sources from the last ee module and the last sub module.
                 std::vector<bool> indicator = *indicatorPtr;
                 size_t next_batch_size = std::accumulate(indicator.begin(), indicator.end(), 0);
-                std::cout << "Batch size of next stage: " << next_batch_size << std::endl;
 
                 std::shared_ptr<ManagedBuffer> manBuf_ptr = srcPtr;
 
                 nvinfer1::DataType type = mEngine->getBindingDataType(i);
                 auto dims = context ? context->getBindingDimensions(i) : mEngine->getBindingDimensions(i);
-                //dims.d[0] = next_batch_size;
                 dims.d[0] = 1;
                 size_t singleVol = samplesCommon::volume(dims);
                 size_t vol = singleVol * next_batch_size;
                 std::shared_ptr<ManagedBuffer> new_manBuf{new ManagedBuffer(vol, type)};
-                std::cout << "Addr(" << new_manBuf->deviceBuffer.data() << ") Size(" 
-                            << new_manBuf->deviceBuffer.nbBytes() << ")" << std::endl;
+                dims.d[0] = next_batch_size;
+                std::cout << "Two sources. Input size: " << dims << std::endl;
 
                 std::vector<int> stepOverList{};
                 for (int idx = 0; idx < indicator.size(); idx++) {
@@ -396,14 +380,19 @@ public:
                 continue;
             }
             else if (!indicatorPtr && srcPtr && i == 0) {
-            // One source from the last sub module.
-                std::cout << "One source" << std::endl;
+                // One source from the last sub module.
+                auto dims = mEngine->getBindingDimensions(i);
+                dims.d[0] = batchSize;
+                std::cout << "One source. Input size: " << dims << std::endl;
                 std::shared_ptr<ManagedBuffer> manBuf_ptr = srcPtr;
-                std::cout << "Addr(" << manBuf_ptr->deviceBuffer.data() << ") Size(" 
-                            << manBuf_ptr->deviceBuffer.nbBytes() << ")" << std::endl;
                 mManagedBuffers.emplace_back(std::move(manBuf_ptr));
                 mDeviceBindings.emplace_back(mManagedBuffers.back()->deviceBuffer.data());
                 continue;
+            }
+            else if (i == 0) {
+                auto dims = mEngine->getBindingDimensions(i);
+                dims.d[0] = batchSize;
+                std::cout << "No source. Input size: " << dims << std::endl;
             }
 
             auto dims = context ? context->getBindingDimensions(i) : mEngine->getBindingDimensions(i);
@@ -426,11 +415,16 @@ public:
             size_t vol = samplesCommon::volume(dims);
             std::shared_ptr<ManagedBuffer> manBuf{new ManagedBuffer(vol, type)};
             //mDeviceBindings.emplace_back(manBuf->deviceBuffer.data());
-            std::cout << "Vol(" << vol << ") dType(" << int(type) << ") Addr(" << manBuf->deviceBuffer.data() 
-                        << ") Size(" << manBuf->deviceBuffer.nbBytes() << ")" << std::endl;
             mManagedBuffers.emplace_back(std::move(manBuf));
             //std::cout << mManagedBuffers.back()->deviceBuffer.data() <<std::endl;
             mDeviceBindings.emplace_back(mManagedBuffers.back()->deviceBuffer.data());
+
+            if (i != 0) {
+                auto dims = mEngine->getBindingDimensions(i);
+                dims.d[0] = batchSize;
+                std::cout << "Output size: " << dims << std::endl;
+                std::cout << "\n" << std::endl;
+            }
         }
     }
 
