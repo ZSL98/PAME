@@ -2,7 +2,6 @@
 #include "buffers.h"
 #include "common.h"
 #include "logger.h"
-//#include "utils.h"
 
 #include "parserOnnxConfig.h"
 #include "NvCaffeParser.h"
@@ -178,6 +177,8 @@ private:
 
     std::vector<size_t> ee_batch_size;
     std::vector<size_t> sub_batch_size;
+    std::vector<int> stage_type{0, 1, 2, 1, 2, 1, 1, 2, 1, 1, 3};
+    std::map<int, std::string> subToEE;
 
     std::vector<uint8_t> cifarbinary;
     // std::shared_ptr<ManagedBuffer> input_buffer_;

@@ -88,7 +88,6 @@ bool Profiler::build()
 
         sub_engines_.emplace_back(tmp_engine);
         std::cout << tmp_engine->getBindingName(0) << std::endl;
-        //std::cout << sub_engines_[i]->getBindingIndex(sub_input_tensor_names_[i][0]) << std::endl;
         std::cout << sub_engines_[i]->getNbBindings() << std::endl;
         sub_contexts_.emplace_back(std::shared_ptr<nvinfer1::IExecutionContext>(
             tmp_engine->createExecutionContext(), samplesCommon::InferDeleter()));
@@ -201,7 +200,6 @@ bool Profiler::constructeeNet(
 
     ee_input_dims_[model_index] = network->getInput(0)->getDimensions();
     ee_input_tensor_names_[model_index] = network->getInput(0)->getName();
-    //std:cout << network->getInput(0)->getName() << std::endl;
 
     ee_output_dims_[model_index] = network->getOutput(0)->getDimensions();
     ee_output_tensor_names_[model_index] = network->getOutput(0)->getName();
@@ -237,63 +235,29 @@ bool Profiler::infer(const size_t& num_test, const size_t& batch_size)
     sub_batch_size[0] = init_batch_size;
     sub_batch_size[1] = init_batch_size;
     ee_batch_size[0] = init_batch_size;
-    /*
-    for (size_t i = 0; i < sub_model_cnt; i++){
-        if (i == 0){
-            samplesCommon::BufferManager tmp_buffer(sub_engines_[i], batch_size);
-            std::cout << "Size of the " << i << "-th sub buffer: " << tmp_buffer.size(sub_input_tensor_names_[i][0]) << std::endl;
-            sub_buffer_manager_.emplace_back(std::move(tmp_buffer));
-        }
-        else if (i == 1||i == 3){
-            //construct the ee buffers
-            size_t map_i = (i-1)/2;
-            std::shared_ptr<samplesCommon::ManagedBuffer> srcPtr = sub_buffer_manager_[i-1].getOutputBuffer();
-            std::cout << srcPtr << std::endl;
-            samplesCommon::BufferManager tmp_buffer1(ee_engines_[map_i], batch_size, srcPtr);
-            std::cout << "Buffer management of the " << map_i << "-th ee buffer done. \n" << std::endl;
-            ee_buffer_manager_.emplace_back(std::move(tmp_buffer1));
-            //construct the sub buffers
-            samplesCommon::BufferManager tmp_buffer2(sub_engines_[i], batch_size, srcPtr);
-            sub_buffer_manager_.emplace_back(std::move(tmp_buffer2));
-            std::cout << "Buffer management of the " << i << "-th sub buffer done. " << std::endl;           
-        }
-        else if (i == 2||i == 4){
-            std::shared_ptr<samplesCommon::ManagedBuffer> srcPtr = sub_buffer_manager_[i-1].getOutputBuffer();
-            std::shared_ptr<samplesCommon::ManagedBuffer> eeResultPtr = ee_buffer_manager_[i/2-1].getOutputBuffer();
-            samplesCommon::BufferManager tmp_buffer(sub_engines_[i], batch_size, srcPtr, eeResultPtr);
-            sub_buffer_manager_.emplace_back(std::move(tmp_buffer));
-            std::cout << "Buffer management of the " << i << "-th sub buffer done. " << std::endl;
-        }
-        else {
-            std::shared_ptr<samplesCommon::ManagedBuffer> srcPtr = sub_buffer_manager_[i-1].getOutputBuffer();
-            samplesCommon::BufferManager tmp_buffer(sub_engines_[i], batch_size, srcPtr);
-            //std::cout << tmp_buffer.getDeviceBindings().size() << std::endl;
-            sub_buffer_manager_.emplace_back(std::move(tmp_buffer));
-            //std::cout << "Size of the " << i << "-th sub buffer: " << tmp_buffer.size(sub_input_tensor_names_[i][0]) << std::endl;
-            std::cout << "Buffer management of the " << i << "-th sub buffer done. " << std::endl;
-        }
-        std::cout << "--------------------------------------------------" << std::endl;
-    }
-    */
+
+    subToEE[1] = 0;
+    subToEE[3] = 1;
+    subToEE[5] = 2;
+    subToEE[6] = 3;
+    subToEE[8] = 4;
+    subToEE[9] = 5;
     
     CHECK(cudaDeviceSynchronize());
-    std::cout << "Testing !!!" << std::endl;
+    std::cout << "Infering......" << std::endl;
     //CHECK(cudaEventRecord(start_, stream_[0]));
 
     for (size_t i = 0; i < sub_model_cnt; i++){
         std::cout << i << std::endl;
-        //std::cout << "Input device buffer address: " << sub_buffer_manager_[i].getInputBuffer()->deviceBuffer.data() << std::endl;
-        //std::cout << "Output device buffer address: " << sub_buffer_manager_[i].getOutputBuffer()->deviceBuffer.data() << std::endl;
 
-        if (i == 0){
+        // Start stage: stage_type = 0
+        if (stage_type[i] == 0){
             //CHECK(cudaEventRecord(ms_stop_[i], stream_[0]));
             
             CHECK(cudaDeviceSynchronize());
             sub_input_dims_[i].d[0] = sub_batch_size[i];
             sub_contexts_[i]->setBindingDimensions(0, sub_input_dims_[i]);
-            //samplesCommon::BufferManager tmp_buffer(sub_engines_[i], sub_batch_size[i]);
             samplesCommon::BufferManager tmp_buffer(sub_engines_[i], sub_batch_size[i]);
-            std::cout << "Size of the " << i << "-th sub buffer: " << tmp_buffer.size(sub_input_tensor_names_[i]) << std::endl;
             sub_buffer_manager_.emplace_back(std::move(tmp_buffer));
 
             if (!processInput(sub_buffer_manager_[0]))
@@ -310,15 +274,13 @@ bool Profiler::infer(const size_t& num_test, const size_t& batch_size)
             }
             CHECK(cudaEventRecord(ms_stop_[i], stream_[0]));
             CHECK(cudaEventRecord(start_, stream_[0]));
-            //memcpytoNextMS(i, i+1);
-            //memcpytoNextEE(i, i);
-            //CHECK(cudaDeviceSynchronize());
         }
-        else if (i == 1||i == 3){
+        // Parallel-with-IC stage: stage_type = 1
+        else if (stage_type[i] == 1){
             CHECK(cudaStreamWaitEvent(stream_[0], start_));
             CHECK(cudaStreamWaitEvent(stream_[0], ms_stop_[i-1]));
             CHECK(cudaStreamWaitEvent(stream_[1], ms_stop_[i-1]));
-            size_t map_i = (i-1)/2;
+            size_t map_i = subToEE[i];
 
             //construct the ee buffers
             std::shared_ptr<samplesCommon::ManagedBuffer> srcPtr = sub_buffer_manager_[i-1].getOutputBuffer();
@@ -365,7 +327,8 @@ bool Profiler::infer(const size_t& num_test, const size_t& batch_size)
             }
             CHECK(cudaEventRecord(ms_stop_[i], stream_[0]));
         }
-        else if (i == 2||i == 4){
+        // Single Main Arch Stage: stage_type = 2
+        else if (stage_type[i] == 2){
             CHECK(cudaStreamWaitEvent(stream_[0], ee_stop_[i/2-1]));
             CHECK(cudaStreamWaitEvent(stream_[0], ms_stop_[i-1]));
 
@@ -388,7 +351,8 @@ bool Profiler::infer(const size_t& num_test, const size_t& batch_size)
             }
             CHECK(cudaEventRecord(ms_stop_[i], stream_[0]));
         }
-        else if (i == 5){
+        // End Stage: stage_type = 3
+        else if (stage_type[i] == 3){
             CHECK(cudaStreamWaitEvent(stream_[0], ms_stop_[i-1]));
             sub_input_dims_[i].d[0] = sub_batch_size[i];
             sub_contexts_[i]->setBindingDimensions(0, sub_input_dims_[i]);
