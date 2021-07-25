@@ -148,7 +148,7 @@ bool Profiler::constructSubNet(
 {
     auto profile = builder->createOptimizationProfile();
     samplesCommon::OnnxSampleParams params;
-    params.dataDirs.emplace_back("src/sample_vgg16/vgg_model/cifar10/onnx_main_arc");
+    params.dataDirs.emplace_back("src/sample_vgg16/vgg_model/cifar10/onnx_main_arc2");
     //data_dir.push_back("samples/VGG16/");
     auto parsed = parser->parseFromFile(locateFile("main_arch_"+to_string(model_index)+".onnx", params.dataDirs).c_str(),
     static_cast<int>(sample::gLogger.getReportableSeverity()));
@@ -260,12 +260,12 @@ bool Profiler::infer(const size_t& num_test, const size_t& batch_size)
             sub_buffer_manager_.emplace_back(std::move(tmp_buffer));
             sub_batch_size[i+1] = sub_batch_size[i];
 
-            if (!processInput(sub_buffer_manager_[0]))
+            if (!processInput(sub_buffer_manager_[i]))
             {
                 return false;
             }
             // Memcpy from host input buffers to device input buffers
-            sub_buffer_manager_[0].copyInputToDevice();
+            sub_buffer_manager_[i].copyInputToDevice();
 
             auto status1 = sub_contexts_[i]->enqueueV2(sub_buffer_manager_[i].getDeviceBindings().data(), stream_[0], nullptr);
             if (!status1) {
@@ -365,6 +365,12 @@ bool Profiler::infer(const size_t& num_test, const size_t& batch_size)
                 std::cout << "Error when inference " << i << "-th sub model" << std::endl;
                 return false;
             }
+            sub_buffer_manager_[i].copyOutputToHost();
+            if (!verifyOutput(sub_buffer_manager_[i]))
+            {
+                return false;
+            }
+
             std::cout << "Inference finished!" << std::endl;
             CHECK(cudaEventRecord(ms_stop_[i], stream_[0]));
             CHECK(cudaEventRecord(stop_, stream_[0]));
@@ -404,7 +410,7 @@ bool Profiler::controller(const int stage_idx, const int ee_idx)
     //std::cout << "Indicator length: " << ee_batch_size[ee_idx] << std::endl;
     for (size_t j = 0; j < ee_batch_size[ee_idx]; j++){
         int maxposition = std::max_element(res+10*j, res+10*j + 10) - (res+10*j);
-        ee_indicator[ee_idx][j] = (*(res+10*j + maxposition) > 0.035) ? 1 : 0;
+        ee_indicator[ee_idx][j] = (*(res+10*j + maxposition) > -100) ? 1 : 0;
     }
     sub_batch_size[stage_idx+1] = std::accumulate(ee_indicator[ee_idx].begin(), ee_indicator[ee_idx].end(), 0);
     //std::cout << "Batch size of next stage: " << sub_batch_size[stage_idx+1] << std::endl;
@@ -421,15 +427,18 @@ bool Profiler::verifyOutput(const samplesCommon::BufferManager& buffer)
     const int volImg = inputC * inputH * inputW;
     const int imageSize = volImg + 1;
     int i = 0;
-    float* output = static_cast<float*>(buffer.getHostBuffer(sub_output_tensor_names_[5]));
+    float* output = static_cast<float*>(buffer.getHostBuffer(sub_output_tensor_names_[10]));
     int maxposition{0};
     int count{0};
-    maxposition = max_element(output, output + 10) - output;
-    //predict correctly
-    if (maxposition == int(cifarbinary[i * imageSize])) {
-        ++count;
+    for (size_t i = 0; i < sub_batch_size.back(); i++) {
+        maxposition = std::max_element(output+10*i, output+10*i + 10) - (output+10*i);
+        //std::cout << "maxposition: " << maxposition << " correctposition: " << int(cifarbinary[(i+32) * imageSize]) << endl;
+        if (maxposition == int(cifarbinary[(i+32*1) * imageSize])) {
+            ++count;
+        }
     }
-    std::cout << "The accuracy of the TRT Engine on 10000 data is :" << float(count) / 10000.0 << endl;
+    std::cout << "The number of correct samples is: " << count << endl;
+    std::cout << "The accuracy of the TRT Engine on 32 data is: " << float(count) / float(sub_batch_size.back()) << endl;
     return true;
 }
 
@@ -450,12 +459,12 @@ bool Profiler::processInput(const samplesCommon::BufferManager& buffer)
     // 5 batchbinary files
     for (int index = 0; index < 1; ++index) {
         // Read cifar10 original binary file
-        readBinaryFile(locateFile("data_batch_" + std::to_string(index + 1), params.dataDirs), cifarbinary);
+        readBinaryFile(locateFile("data_batch_" + std::to_string(index + 1) + ".bin", params.dataDirs), cifarbinary);
       
         for (int i = 0; i < 32; ++i) {
             for (int j = 0; j < 32 * 32 * 3; ++j) {
                 //RGB format
-                hostDataBuffer[i*volImg+j] = float(cifarbinary[i * imageSize + j])/255.0;
+                hostDataBuffer[i*volImg+j] = float(cifarbinary[(i+32*1) * imageSize + j])/255.0;
             }
          }
     }
