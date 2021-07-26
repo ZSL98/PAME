@@ -148,7 +148,7 @@ bool Profiler::constructSubNet(
 {
     auto profile = builder->createOptimizationProfile();
     samplesCommon::OnnxSampleParams params;
-    params.dataDirs.emplace_back("src/sample_vgg16/vgg_model/cifar10/onnx_main_arc2");
+    params.dataDirs.emplace_back("src/sample_vgg16/vgg_model/cifar10/onnx_main_arc3");
     //data_dir.push_back("samples/VGG16/");
     auto parsed = parser->parseFromFile(locateFile("main_arch_"+to_string(model_index)+".onnx", params.dataDirs).c_str(),
     static_cast<int>(sample::gLogger.getReportableSeverity()));
@@ -430,10 +430,13 @@ bool Profiler::verifyOutput(const samplesCommon::BufferManager& buffer)
     float* output = static_cast<float*>(buffer.getHostBuffer(sub_output_tensor_names_[10]));
     int maxposition{0};
     int count{0};
+    for (size_t i = 0; i < 10; i++) {
+        std::cout << *(output + i) << std::endl;
+    }
     for (size_t i = 0; i < sub_batch_size.back(); i++) {
         maxposition = std::max_element(output+10*i, output+10*i + 10) - (output+10*i);
         //std::cout << "maxposition: " << maxposition << " correctposition: " << int(cifarbinary[(i+32) * imageSize]) << endl;
-        if (maxposition == int(cifarbinary[(i+32*1) * imageSize])) {
+        if (maxposition == int(cifarbinary[(i+32*30) * imageSize])) {
             ++count;
         }
     }
@@ -464,7 +467,7 @@ bool Profiler::processInput(const samplesCommon::BufferManager& buffer)
         for (int i = 0; i < 32; ++i) {
             for (int j = 0; j < 32 * 32 * 3; ++j) {
                 //RGB format
-                hostDataBuffer[i*volImg+j] = float(cifarbinary[(i+32*1) * imageSize + j])/255.0;
+                hostDataBuffer[i*volImg+j] = float(cifarbinary[(i+32*30) * imageSize + j])/255.0;
             }
          }
     }
