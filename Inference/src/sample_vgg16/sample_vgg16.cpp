@@ -7,10 +7,10 @@ A sample for vgg16 inference
 
 Profiler::Profiler(
 const ProfilerConfig& profiler_config, const size_t& min_batch_size,
-const size_t& opt_batch_size, const size_t& max_batch_size,
+const size_t& opt_batch_size, const size_t& max_batch_size, const int batch_num, 
 const Severity severity)
 : min_batch_size_(min_batch_size), opt_batch_size_(opt_batch_size),
-  max_batch_size_(max_batch_size)
+  max_batch_size_(max_batch_size), batch_num_(batch_num)
 {
     cudaStreamCreate(&(stream_[0]));
     cudaStreamCreate(&(stream_[1]));
@@ -50,6 +50,7 @@ bool Profiler::build()
     ee_output_dims_.resize(ee_model_cnt);
     ee_output_tensor_names_.resize(ee_model_cnt);
     ee_indicator.resize(ee_model_cnt);
+    accuracy.resize(batch_num_);
 
     for (size_t i = 0; i < sub_model_cnt; i++) {
         // sub_buffer_manager_.emplace_back(std::move(BufferManager()));
@@ -136,8 +137,9 @@ bool Profiler::build()
         ee_contexts_.emplace_back(std::shared_ptr<nvinfer1::IExecutionContext>(
             tmp_engine->createExecutionContext(), samplesCommon::InferDeleter()));
     }
-
-  return true;
+    readData();
+    std::cout << "Read data successfully" << std::endl;
+    return true;
 }
 
 bool Profiler::constructSubNet(
@@ -168,7 +170,7 @@ bool Profiler::constructSubNet(
     nvinfer1::Dims opt_dims = sub_input_dims_[model_index];
     opt_dims.d[0] = 1;
     nvinfer1::Dims max_dims = sub_input_dims_[model_index];
-    max_dims.d[0] = 32;
+    max_dims.d[0] = max_batch_size_;
 
     profile->setDimensions(sub_input_tensor_names_[model_index].c_str(), nvinfer1::OptProfileSelector::kMIN, min_dims);
     profile->setDimensions(sub_input_tensor_names_[model_index].c_str(), nvinfer1::OptProfileSelector::kOPT, opt_dims);
@@ -209,7 +211,7 @@ bool Profiler::constructeeNet(
     nvinfer1::Dims opt_dims = ee_input_dims_[model_index];
     opt_dims.d[0] = 1;
     nvinfer1::Dims max_dims = ee_input_dims_[model_index];
-    max_dims.d[0] = 32;
+    max_dims.d[0] = max_batch_size_;
 
     profile->setDimensions(ee_input_tensor_names_[model_index].c_str(), nvinfer1::OptProfileSelector::kMIN, min_dims);
     profile->setDimensions(ee_input_tensor_names_[model_index].c_str(), nvinfer1::OptProfileSelector::kOPT, opt_dims);
@@ -223,7 +225,7 @@ bool Profiler::constructeeNet(
     return true;
 }
 
-bool Profiler::infer(const size_t& num_test, const size_t& batch_size)
+bool Profiler::infer(const size_t& num_test, const size_t& batch_size, const int batch_idx)
 {
     // Read the input data into the managed stage1 buffers
     // assert(mParams.inputTensorNames.size() == 1);
@@ -231,7 +233,7 @@ bool Profiler::infer(const size_t& num_test, const size_t& batch_size)
     size_t ee_model_cnt = profiler_config_.geteeNum();
     ee_batch_size.resize(ee_model_cnt);
     sub_batch_size.resize(sub_model_cnt);
-    size_t init_batch_size = 32;
+    size_t init_batch_size = max_batch_size_;
     sub_batch_size[0] = init_batch_size;
     ee_batch_size[0] = init_batch_size;
 
@@ -260,7 +262,7 @@ bool Profiler::infer(const size_t& num_test, const size_t& batch_size)
             sub_buffer_manager_.emplace_back(std::move(tmp_buffer));
             sub_batch_size[i+1] = sub_batch_size[i];
 
-            if (!processInput(sub_buffer_manager_[i]))
+            if (!processInput(sub_buffer_manager_[i], 0))
             {
                 return false;
             }
@@ -366,10 +368,7 @@ bool Profiler::infer(const size_t& num_test, const size_t& batch_size)
                 return false;
             }
             sub_buffer_manager_[i].copyOutputToHost();
-            if (!verifyOutput(sub_buffer_manager_[i]))
-            {
-                return false;
-            }
+            accuracy[batch_idx] = verifyOutput(sub_buffer_manager_[i], 0);
 
             std::cout << "Inference finished!" << std::endl;
             CHECK(cudaEventRecord(ms_stop_[i], stream_[0]));
@@ -418,7 +417,7 @@ bool Profiler::controller(const int stage_idx, const int ee_idx)
     return true;
 }
 
-bool Profiler::verifyOutput(const samplesCommon::BufferManager& buffer)
+float Profiler::verifyOutput(const samplesCommon::BufferManager& buffer, const int batch_idx = 0)
 {
     const int inputC = 3;
     const int inputH = 32;
@@ -430,22 +429,36 @@ bool Profiler::verifyOutput(const samplesCommon::BufferManager& buffer)
     float* output = static_cast<float*>(buffer.getHostBuffer(sub_output_tensor_names_[10]));
     int maxposition{0};
     int count{0};
-    for (size_t i = 0; i < 10; i++) {
-        std::cout << *(output + i) << std::endl;
-    }
+    //for (size_t i = 0; i < 10; i++) {
+    //    std::cout << *(output + i) << std::endl;
+    //}
     for (size_t i = 0; i < sub_batch_size.back(); i++) {
         maxposition = std::max_element(output+10*i, output+10*i + 10) - (output+10*i);
         //std::cout << "maxposition: " << maxposition << " correctposition: " << int(cifarbinary[(i+32) * imageSize]) << endl;
-        if (maxposition == int(cifarbinary[(i+32*30) * imageSize])) {
+        if (maxposition == int(cifarbinary[(i + max_batch_size_ * batch_idx) * imageSize])) {
             ++count;
         }
     }
-    std::cout << "The number of correct samples is: " << count << endl;
-    std::cout << "The accuracy of the TRT Engine on 32 data is: " << float(count) / float(sub_batch_size.back()) << endl;
+    //std::cout << "The number of correct samples is: " << count << endl;
+    float accuracy = float(count) / float(sub_batch_size.back());
+    std::cout << "The accuracy of the TRT Engine on" << max_batch_size_ << "data is: " << accuracy << endl;
+    return accuracy;
+}
+
+
+bool Profiler::readData()
+{
+    samplesCommon::OnnxSampleParams params;
+    params.dataDirs.emplace_back("data/cifar10");
+    // 5 batchbinary files
+    for (int index = 0; index < 5; ++index) {
+        // Read cifar10 original binary file
+        readBinaryFile(locateFile("data_batch_" + std::to_string(index + 1) + ".bin", params.dataDirs), cifarbinary);
+    }
     return true;
 }
 
-bool Profiler::processInput(const samplesCommon::BufferManager& buffer)
+bool Profiler::processInput(const samplesCommon::BufferManager& buffer, const int batch_idx = 0)
 {
     std::cout << "Pre processing begin." << std::endl;
     const int inputC = 3;
@@ -455,22 +468,22 @@ bool Profiler::processInput(const samplesCommon::BufferManager& buffer)
     const int volImg = inputC * inputH * inputW;
     const int imageSize = volImg + 1;
     const int outputSize = 10;
-    samplesCommon::OnnxSampleParams params;
     float* hostDataBuffer = static_cast<float*>(buffer.getHostBuffer(sub_input_tensor_names_[0]));
-    params.dataDirs.emplace_back("data/cifar10");
-
-    // 5 batchbinary files
-    for (int index = 0; index < 1; ++index) {
-        // Read cifar10 original binary file
-        readBinaryFile(locateFile("data_batch_" + std::to_string(index + 1) + ".bin", params.dataDirs), cifarbinary);
       
-        for (int i = 0; i < 32; ++i) {
+        for (int i = 0; i < max_batch_size_; ++i) {
             for (int j = 0; j < 32 * 32 * 3; ++j) {
                 //RGB format
-                hostDataBuffer[i*volImg+j] = float(cifarbinary[(i+32*30) * imageSize + j])/255.0;
+                if (j < 32*32) {
+                    hostDataBuffer[i*volImg+j] = (float(cifarbinary[(i + max_batch_size_ * batch_idx) * imageSize + j])/255.0-0.485)/0.229;
+                }
+                else if (j < 32*32*2) {
+                    hostDataBuffer[i*volImg+j] = (float(cifarbinary[(i + max_batch_size_ * batch_idx) * imageSize + j])/255.0-0.456)/0.224;
+                }
+                else {
+                    hostDataBuffer[i*volImg+j] = (float(cifarbinary[(i + max_batch_size_ * batch_idx) * imageSize + j])/255.0-0.406)/0.225;
+                }
             }
          }
-    }
     std::cout << "Pre processing finished." << std::endl;
     return true;
 }
@@ -507,11 +520,14 @@ int main(int argc, char** argv)
 
     Profiler inst = Profiler(
         profiler_config, config_doc["min_bs"].GetUint(),
-        config_doc["opt_bs"].GetUint(), config_doc["max_bs"].GetUint(),
+        config_doc["opt_bs"].GetUint(), config_doc["max_bs"].GetUint(), config_doc["bs_num"].GetUint(),
         nvinfer1::ILogger::Severity::kINFO);
 
     inst.build();
-    inst.infer(config_doc["test_iter"].GetUint(), config_doc["cur_bs"].GetUint());
+    for (int batch_idx = 0; batch_idx < inst.batch_num_; batch_idx++) {
+        inst.infer(config_doc["test_iter"].GetUint(), config_doc["cur_bs"].GetUint(), batch_idx);
+        std::cout << inst.accuracy[batch_idx] << std::endl;
+    }
     //inst.exportTrtModel(profiler_config.getDataDir());
     return 0;
 }

@@ -121,12 +121,12 @@ class Profiler {
 public:
     Profiler(
       const ProfilerConfig& profiler_config, const size_t& min_batch_size = 1,
-      const size_t& opt_batch_size = 1, const size_t& max_batch_size = 1,
+      const size_t& opt_batch_size = 1, const size_t& max_batch_size = 1, const int batch_num = 1,
       const Severity severity = Severity::kWARNING);
 
     bool build();
 
-    bool infer(const size_t& num_test, const size_t& batch_size = 1);
+    bool infer(const size_t& num_test, const size_t& batch_size, const int batch_idx);
 
     bool multistream_infer(
     const size_t& num_test, const size_t& batch_size = 1,
@@ -135,6 +135,8 @@ public:
     bool subInfer(const size_t& sub_index, cudaStream_t stream);
 
     bool exportTrtModel(std::string save_path);
+    int batch_num_;
+    std::vector<float> accuracy;
 
 private:
     ProfilerConfig profiler_config_;
@@ -197,8 +199,9 @@ private:
         TRTUniquePtr<nvonnxparser::IParser>& parser, size_t model_index);
 
     std::vector<void*> getDeviceBindings(const size_t& sub_index);
-    bool processInput(const samplesCommon::BufferManager& buffer);
-    bool verifyOutput(const samplesCommon::BufferManager& buffer);
+    bool readData();
+    bool processInput(const samplesCommon::BufferManager& buffer, const int batch_idx);
+    float verifyOutput(const samplesCommon::BufferManager& buffer, const int batch_idx);
     bool controller(const int stage_idx, const int ee_idx);
 
     bool setBindingDimentions(const size_t& batch_size);
