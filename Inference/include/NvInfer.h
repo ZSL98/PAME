@@ -7391,7 +7391,7 @@ public:
     //!
     //! \see getDeviceType()
     //!
-    void setDeviceType(const ILayer* layer, DeviceType deviceType) noexcept
+    void setDeviceType(const ILayer* layer, NVDeviceType deviceType) noexcept
     {
         mImpl->setDeviceType(layer, deviceType);
     }
@@ -7400,7 +7400,7 @@ public:
     //! \brief Get the device that this layer executes on.
     //! \return Returns DeviceType of the layer.
     //!
-    DeviceType getDeviceType(const ILayer* layer) const noexcept
+    NVDeviceType getDeviceType(const ILayer* layer) const noexcept
     {
         return mImpl->getDeviceType(layer);
     }
@@ -7465,7 +7465,7 @@ public:
     //! this device will run on it, unless setDeviceType is used to override the default DeviceType for a layer.
     //! \see getDefaultDeviceType()
     //!
-    void setDefaultDeviceType(DeviceType deviceType) noexcept
+    void setDefaultDeviceType(NVDeviceType deviceType) noexcept
     {
         mImpl->setDefaultDeviceType(deviceType);
     }
@@ -7475,7 +7475,7 @@ public:
     //!
     //! By default it returns DeviceType::kGPU.
     //!
-    DeviceType getDefaultDeviceType() const noexcept
+    NVDeviceType getDefaultDeviceType() const noexcept
     {
         return mImpl->getDefaultDeviceType();
     }

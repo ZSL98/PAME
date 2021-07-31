@@ -754,7 +754,7 @@ bool setupNetworkAndConfig(const BuildOptions& build, const SystemOptions& sys, 
     {
         if (sys.DLACore < builder.getNbDLACores())
         {
-            config.setDefaultDeviceType(DeviceType::kDLA);
+            config.setDefaultDeviceType(NVDeviceType::kDLA);
             config.setDLACore(sys.DLACore);
             config.setFlag(BuilderFlag::kSTRICT_TYPES);
 

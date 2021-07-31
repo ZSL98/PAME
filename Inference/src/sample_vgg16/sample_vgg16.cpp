@@ -192,7 +192,7 @@ bool Profiler::constructeeNet(
 {
     auto profile = builder->createOptimizationProfile();
     samplesCommon::OnnxSampleParams params;
-    params.dataDirs.emplace_back("src/sample_vgg16/vgg_model/cifar10/onnx_IC");
+    params.dataDirs.emplace_back("src/sample_vgg16/vgg_model/cifar10/onnx_IC3");
     //data_dir.push_back("samples/VGG16/");
     auto parsed = parser->parseFromFile(locateFile("IC_"+to_string(model_index)+".onnx", params.dataDirs).c_str(),
     static_cast<int>(sample::gLogger.getReportableSeverity()));
@@ -406,10 +406,11 @@ bool Profiler::controller(const int stage_idx, const int ee_idx)
     cudaMemcpy(eeResultPtr->hostBuffer.data(), eeResultPtr->deviceBuffer.data(),
                 eeResultPtr->hostBuffer.nbBytes(), memcpyType);
     float *res = static_cast<float*>(eeResultPtr->hostBuffer.data());
-    //std::cout << "Indicator length: " << ee_batch_size[ee_idx] << std::endl;
+    std::cout << "Indicator length: " << ee_batch_size[ee_idx] << std::endl;
     for (size_t j = 0; j < ee_batch_size[ee_idx]; j++){
         int maxposition = std::max_element(res+10*j, res+10*j + 10) - (res+10*j);
-        ee_indicator[ee_idx][j] = (*(res+10*j + maxposition) > -100) ? 1 : 0;
+        std::cout << "max value: " << *(res+10*j + maxposition) << std::endl;
+        ee_indicator[ee_idx][j] = (*(res+10*j + maxposition) > profiler_config_.ee_thresholds_[subToEE[stage_idx]]) ? 1 : 0;
     }
     sub_batch_size[stage_idx+1] = std::accumulate(ee_indicator[ee_idx].begin(), ee_indicator[ee_idx].end(), 0);
     //std::cout << "Batch size of next stage: " << sub_batch_size[stage_idx+1] << std::endl;
@@ -441,7 +442,7 @@ float Profiler::verifyOutput(const samplesCommon::BufferManager& buffer, const i
     }
     //std::cout << "The number of correct samples is: " << count << endl;
     float accuracy = float(count) / float(sub_batch_size.back());
-    std::cout << "The accuracy of the TRT Engine on" << max_batch_size_ << "data is: " << accuracy << endl;
+    std::cout << "The accuracy of the TRT Engine on " << max_batch_size_ << " data is: " << accuracy << endl;
     return accuracy;
 }
 
@@ -492,12 +493,16 @@ ProfilerConfig getInstConfig(const rapidjson::Document& config_doc)
 {
     assert(config_doc["seg_files"].IsArray());
     const rapidjson::Value& model_files = config_doc["seg_files"];
+    const rapidjson::Value& thresholds = config_doc["thresholds"];
     assert(model_files.Size() == config_doc["seg_num"].GetUint());
     ProfilerConfig profiler_config{config_doc["seg_num"].GetUint(),
         config_doc["ee_num"].GetUint(), config_doc["dir"].GetString(),
         nvinfer1::DataType::kFLOAT, config_doc["fp16"].GetBool()};
     for (rapidjson::SizeType i = 0; i < model_files.Size(); i++) {
         profiler_config.setSegFileName(i, model_files[i].GetString());
+    }
+    for (rapidjson::SizeType i = 0; i < thresholds.Size(); i++) {
+        profiler_config.ee_thresholds_[i] = float(thresholds[i].GetDouble());
     }
     return profiler_config;
 }

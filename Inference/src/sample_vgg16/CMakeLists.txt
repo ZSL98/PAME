@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.13 FATAL_ERROR)
 project(sample)
-set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_STANDARD 14)
 
 
 macro(find_library_create_target target_name lib libtype hints)
@@ -30,6 +30,11 @@ set(ONNX_INCLUDE_DIR "${TRT_DIR}/parsers/onnx")
 set(SAMPLES_DIR ${TRT_DIR}/common)
 set(CUDA_TOOLKIT_ROOT_DIR ${CUDA_INSTALL_DIR})
 set(SAMPLES_COMMON_SOURCES ${SAMPLES_DIR}/logger.cpp)
+set(TORCH_LIBRARIES /home/slzhang/mytool/pytorch/torch/lib)
+# set(TORCH_LIB_DIR /home/slzhang/mytool/libtorch/lib)
+
+# set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${TORCH_CXX_FLAGS}")
+# add_compile_definitions(_GLIBCXX_USE_CXX11_ABI=0)
 
 add_executable(sample
     ${SAMPLE_SOURCES}
@@ -53,7 +58,6 @@ find_library(CUBLASLT_LIB cublasLt HINTS ${CUDA_TOOLKIT_ROOT_DIR} PATH_SUFFIXES 
 find_library(CUDART_LIB cudart HINTS ${CUDA_TOOLKIT_ROOT_DIR} PATH_SUFFIXES lib lib64)
 find_library(RT_LIB rt)
 
-
 # target_compile_options(${TARGET_NAME} PUBLIC "-fno-rtti")
 set(SAMPLE_DEP_LIBS
     ${CUDART_LIB}
@@ -70,6 +74,11 @@ target_link_libraries(sample
     ${SAMPLE_DEP_LIBS}
     -Wl,--unresolved-symbols=ignore-in-shared-libs
 )
+
+# find_package(Torch REQUIRED)
+find_package(Torch REQUIRED PATHS /home/slzhang/mytool/libtorch)
+# message(STATUS ${TORCH_LIBRARIES})
+target_link_libraries(sample "${TORCH_LIBRARIES}")
 
 set_target_properties(sample PROPERTIES LINK_FLAGS "-Wl,--exclude-libs,ALL")
 # set_target_properties(sample PROPERTIES DEBUG_POSTFIX ${TRT_DEBUG_POSTFIX})

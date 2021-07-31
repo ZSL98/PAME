@@ -592,7 +592,7 @@ constexpr inline int32_t EnumMax<WeightsRole>() noexcept
 //! \brief The device that this layer/network will execute on.
 //!
 //!
-enum class DeviceType : int32_t
+enum class NVDeviceType : int32_t
 {
     kGPU, //!< GPU Device
     kDLA, //!< DLA Core
@@ -600,7 +600,7 @@ enum class DeviceType : int32_t
 
 //! Maximum number of elements in DeviceType enum. \see DeviceType
 template <>
-constexpr inline int32_t EnumMax<DeviceType>() noexcept
+constexpr inline int32_t EnumMax<NVDeviceType>() noexcept
 {
     return 2;
 }

@@ -15,6 +15,7 @@
 #include <iostream>
 #include <sstream>
 #include <chrono>
+//#include <torch/torch.h>
 
 
 class ProfilerConfig {
@@ -51,11 +52,14 @@ public:
     {
         segment_fnames_.resize(seg_num_);
         ee_fnames_.resize(ee_num_);
+        ee_thresholds_.resize(ee_num_);
     }
 
     ~ProfilerConfig() {}
 
 public:
+    std::vector<float> ee_thresholds_;
+
     void setModelDtype(const nvinfer1::DataType modelDtype)
     {
         model_dtype_ = modelDtype;

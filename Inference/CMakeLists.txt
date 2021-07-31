@@ -98,9 +98,9 @@ endif()
 ############################################################################################
 # Dependencies
 
-set(DEFAULT_CUDA_VERSION 11.2)
+set(DEFAULT_CUDA_VERSION 11.4)
 set(DEFAULT_CUDNN_VERSION 8.2)
-set(DEFAULT_PROTOBUF_VERSION 3.0.0)
+set(DEFAULT_PROTOBUF_VERSION 3.11.0)
 set(DEFAULT_CUB_VERSION 1.8.0)
 
 # Dependency Version Resolution
@@ -194,9 +194,17 @@ set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -Xcompiler -Wno-deprecated-declaration
 ############################################################################################
 # TensorRT
 
-
 if(BUILD_PARSERS)
     add_subdirectory(parsers)
 else()
     find_library_create_target(nvonnxparser nvonnxparser SHARED ${TRT_OUT_DIR} ${TRT_LIB_DIR})
 endif()
+
+############################################################################################
+# libtorch
+
+# find_package(Torch REQUIRED PATHS /home/slzhang/mytool/libtorch)
+# find_package(TorchVision REQUIRED PATHS /home/slzhang/mytool)
+# target_link_libraries(sample "${TORCH_LIBRARIES}")
+# target_link_libraries(sample TorchVision::TorchVision)
+# set_property(TARGET sample PROPERTY CXX_STANDARD 14)
