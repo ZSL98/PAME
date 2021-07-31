@@ -63,7 +63,7 @@ using namespace plugin;
 #define ENABLE_DLA_API 1
 #endif
 
-#define CHECK(status)                                                                                                  \
+#define CUDACHECK(status)                                                                                                  \
     do                                                                                                                 \
     {                                                                                                                  \
         auto ret = (status);                                                                                           \
@@ -105,7 +105,7 @@ template <typename T, typename T_>
 OBJ_GUARD(T)
 makeObjGuard(T_* t)
 {
-    CHECK(!(std::is_base_of<T, T_>::value || std::is_same<T, T_>::value));
+    CUDACHECK(!(std::is_base_of<T, T_>::value || std::is_same<T, T_>::value));
     auto deleter = [](T* t) { t->destroy(); };
     return std::unique_ptr<T, decltype(deleter)>{static_cast<T*>(t), deleter};
 }
@@ -379,7 +379,7 @@ using ByteMemory = TypedHostMemory<uint8_t, DataType::kINT8>;
 inline void* safeCudaMalloc(size_t memSize)
 {
     void* deviceMem;
-    CHECK(cudaMalloc(&deviceMem, memSize));
+    CUDACHECK(cudaMalloc(&deviceMem, memSize));
     if (deviceMem == nullptr)
     {
         std::cerr << "Out of memory" << std::endl;
@@ -637,7 +637,7 @@ inline void enableDLA(IBuilder* builder, IBuilderConfig* config, int useDLACore,
             // By default run in FP16 mode. FP32 mode is not permitted.
             config->setFlag(BuilderFlag::kFP16);
         }
-        config->setDefaultDeviceType(DeviceType::kDLA);
+        config->setDefaultDeviceType(NVDeviceType::kDLA);
         config->setDLACore(useDLACore);
         config->setFlag(BuilderFlag::kSTRICT_TYPES);
     }
@@ -853,24 +853,24 @@ public:
     GpuTimer(cudaStream_t stream)
         : mStream(stream)
     {
-        CHECK(cudaEventCreate(&mStart));
-        CHECK(cudaEventCreate(&mStop));
+        CUDACHECK(cudaEventCreate(&mStart));
+        CUDACHECK(cudaEventCreate(&mStop));
     }
     ~GpuTimer()
     {
-        CHECK(cudaEventDestroy(mStart));
-        CHECK(cudaEventDestroy(mStop));
+        CUDACHECK(cudaEventDestroy(mStart));
+        CUDACHECK(cudaEventDestroy(mStop));
     }
     void start()
     {
-        CHECK(cudaEventRecord(mStart, mStream));
+        CUDACHECK(cudaEventRecord(mStart, mStream));
     }
     void stop()
     {
-        CHECK(cudaEventRecord(mStop, mStream));
+        CUDACHECK(cudaEventRecord(mStop, mStream));
         float ms{0.0f};
-        CHECK(cudaEventSynchronize(mStop));
-        CHECK(cudaEventElapsedTime(&ms, mStart, mStop));
+        CUDACHECK(cudaEventSynchronize(mStop));
+        CUDACHECK(cudaEventElapsedTime(&ms, mStart, mStop));
         mMs += ms;
     }
 
@@ -956,11 +956,11 @@ inline void loadLibrary(const std::string& path)
 inline int32_t getSMVersion()
 {
     int32_t deviceIndex = 0;
-    CHECK(cudaGetDevice(&deviceIndex));
+    CUDACHECK(cudaGetDevice(&deviceIndex));
 
     int32_t major, minor;
-    CHECK(cudaDeviceGetAttribute(&major, cudaDevAttrComputeCapabilityMajor, deviceIndex));
-    CHECK(cudaDeviceGetAttribute(&minor, cudaDevAttrComputeCapabilityMinor, deviceIndex));
+    CUDACHECK(cudaDeviceGetAttribute(&major, cudaDevAttrComputeCapabilityMajor, deviceIndex));
+    CUDACHECK(cudaDeviceGetAttribute(&minor, cudaDevAttrComputeCapabilityMinor, deviceIndex));
 
     return ((major << 8) | minor);
 }

@@ -15,7 +15,7 @@
 #include <iostream>
 #include <sstream>
 #include <chrono>
-//#include <torch/torch.h>
+#include <torch/torch.h>
 
 
 class ProfilerConfig {

@@ -30,7 +30,6 @@ set(ONNX_INCLUDE_DIR "${TRT_DIR}/parsers/onnx")
 set(SAMPLES_DIR ${TRT_DIR}/common)
 set(CUDA_TOOLKIT_ROOT_DIR ${CUDA_INSTALL_DIR})
 set(SAMPLES_COMMON_SOURCES ${SAMPLES_DIR}/logger.cpp)
-set(TORCH_LIBRARIES /home/slzhang/mytool/pytorch/torch/lib)
 # set(TORCH_LIB_DIR /home/slzhang/mytool/libtorch/lib)
 
 # set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${TORCH_CXX_FLAGS}")
@@ -41,6 +40,7 @@ add_executable(sample
     ${SAMPLE_HEADERS}
     ${SAMPLES_COMMON_SOURCES}
 )
+
 
 target_include_directories(sample
     PUBLIC ${TRT_DIR}/include
@@ -76,9 +76,11 @@ target_link_libraries(sample
 )
 
 # find_package(Torch REQUIRED)
-find_package(Torch REQUIRED PATHS /home/slzhang/mytool/libtorch)
-# message(STATUS ${TORCH_LIBRARIES})
-target_link_libraries(sample "${TORCH_LIBRARIES}")
+find_package(Torch REQUIRED PATHS /home/slzhang/mytool/pytorch/torch)
+message(STATUS ${TORCH_LIBRARIES})
+# message(STATUS ${TORCH_INCLUDE_DIRS})
+# include_directories(${TORCH_INCLUDE_DIRS})
+target_link_libraries(sample ${TORCH_LIBRARIES})
 
 set_target_properties(sample PROPERTIES LINK_FLAGS "-Wl,--exclude-libs,ALL")
 # set_target_properties(sample PROPERTIES DEBUG_POSTFIX ${TRT_DEBUG_POSTFIX})

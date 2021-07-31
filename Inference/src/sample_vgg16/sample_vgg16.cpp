@@ -14,18 +14,18 @@ const Severity severity)
 {
     cudaStreamCreate(&(stream_[0]));
     cudaStreamCreate(&(stream_[1]));
-    CHECK(cudaEventCreate(&start_));
-    CHECK(cudaEventCreate(&stop_));
+    CUDACHECK(cudaEventCreate(&start_));
+    CUDACHECK(cudaEventCreate(&stop_));
 
     profiler_config_ = profiler_config;
     size_t sub_model_cnt = profiler_config_.getSegNum();
     size_t ee_model_cnt = profiler_config_.geteeNum();
         
     for (size_t i = 0; i < sub_model_cnt; i++) {
-        CHECK(cudaEventCreate(&ms_stop_[i]));
+        CUDACHECK(cudaEventCreate(&ms_stop_[i]));
     }
     for (size_t i = 0; i < ee_model_cnt; i++) {
-        CHECK(cudaEventCreate(&ee_stop_[i]));
+        CUDACHECK(cudaEventCreate(&ee_stop_[i]));
     }
         
     sample::gLogger.setReportableSeverity(severity);
@@ -244,18 +244,18 @@ bool Profiler::infer(const size_t& num_test, const size_t& batch_size, const int
     subToEE[8] = 4;
     subToEE[9] = 5;
     
-    CHECK(cudaDeviceSynchronize());
+    CUDACHECK(cudaDeviceSynchronize());
     std::cout << "Infering......" << std::endl;
-    //CHECK(cudaEventRecord(start_, stream_[0]));
+    //CUDACHECK(cudaEventRecord(start_, stream_[0]));
 
     for (size_t i = 0; i < sub_model_cnt; i++){
         std::cout << "Stage index: " << i << std::endl;
 
         // Start stage: stage_type = 0
         if (stage_type[i] == 0){
-            //CHECK(cudaEventRecord(ms_stop_[i], stream_[0]));
+            //CUDACHECK(cudaEventRecord(ms_stop_[i], stream_[0]));
             
-            CHECK(cudaDeviceSynchronize());
+            CUDACHECK(cudaDeviceSynchronize());
             sub_input_dims_[i].d[0] = sub_batch_size[i];
             sub_contexts_[i]->setBindingDimensions(0, sub_input_dims_[i]);
             samplesCommon::BufferManager tmp_buffer(sub_engines_[i], sub_batch_size[i]);
@@ -274,14 +274,14 @@ bool Profiler::infer(const size_t& num_test, const size_t& batch_size, const int
                 std::cout << "Error when inference " << i << "-th sub model" << std::endl;
                 return false;
             }
-            CHECK(cudaEventRecord(ms_stop_[i], stream_[0]));
-            CHECK(cudaEventRecord(start_, stream_[0]));
+            CUDACHECK(cudaEventRecord(ms_stop_[i], stream_[0]));
+            CUDACHECK(cudaEventRecord(start_, stream_[0]));
         }
         // Parallel-with-IC stage: stage_type = 1
         else if (stage_type[i] == 1){
-            CHECK(cudaStreamWaitEvent(stream_[0], start_));
-            CHECK(cudaStreamWaitEvent(stream_[0], ms_stop_[i-1]));
-            CHECK(cudaStreamWaitEvent(stream_[1], ms_stop_[i-1]));
+            CUDACHECK(cudaStreamWaitEvent(stream_[0], start_));
+            CUDACHECK(cudaStreamWaitEvent(stream_[0], ms_stop_[i-1]));
+            CUDACHECK(cudaStreamWaitEvent(stream_[1], ms_stop_[i-1]));
             size_t map_i = subToEE[i];
 
             // construct the sub buffer
@@ -305,7 +305,7 @@ bool Profiler::infer(const size_t& num_test, const size_t& batch_size, const int
                 std::cout << "Error when inference " << i << "-th sub model" << std::endl;
                 return false;
             }
-            CHECK(cudaEventRecord(ms_stop_[i], stream_[0]));
+            CUDACHECK(cudaEventRecord(ms_stop_[i], stream_[0]));
 
             //construct the ee buffer (the same buffer as the input of the parallel main arch buffer)
             ee_batch_size[map_i] = sub_batch_size[i];
@@ -327,12 +327,12 @@ bool Profiler::infer(const size_t& num_test, const size_t& batch_size, const int
                 return false;
             }       
 
-            CHECK(cudaEventRecord(ee_stop_[subToEE[i]], stream_[1]));
+            CUDACHECK(cudaEventRecord(ee_stop_[subToEE[i]], stream_[1]));
         }
         // Single Main Arch Stage: stage_type = 2
         else if (stage_type[i] == 2){
-            CHECK(cudaStreamWaitEvent(stream_[0], ee_stop_[i/2-1]));
-            CHECK(cudaStreamWaitEvent(stream_[0], ms_stop_[i-1]));
+            CUDACHECK(cudaStreamWaitEvent(stream_[0], ee_stop_[i/2-1]));
+            CUDACHECK(cudaStreamWaitEvent(stream_[0], ms_stop_[i-1]));
 
             sub_input_dims_[i].d[0] = sub_batch_size[i];
             sub_contexts_[i]->setBindingDimensions(0, sub_input_dims_[i]);
@@ -350,11 +350,11 @@ bool Profiler::infer(const size_t& num_test, const size_t& batch_size, const int
                 std::cout << "Error when inference " << i << "-th sub model" << std::endl;
                 return false;
             }
-            CHECK(cudaEventRecord(ms_stop_[i], stream_[0]));
+            CUDACHECK(cudaEventRecord(ms_stop_[i], stream_[0]));
         }
         // End Stage: stage_type = 3
         else if (stage_type[i] == 3){
-            CHECK(cudaStreamWaitEvent(stream_[0], ms_stop_[i-1]));
+            CUDACHECK(cudaStreamWaitEvent(stream_[0], ms_stop_[i-1]));
             sub_input_dims_[i].d[0] = sub_batch_size[i];
             sub_contexts_[i]->setBindingDimensions(0, sub_input_dims_[i]);
             std::shared_ptr<samplesCommon::ManagedBuffer> srcPtr = sub_buffer_manager_[i-1].getOutputBuffer();
@@ -371,9 +371,9 @@ bool Profiler::infer(const size_t& num_test, const size_t& batch_size, const int
             accuracy[batch_idx] = verifyOutput(sub_buffer_manager_[i], 0);
 
             std::cout << "Inference finished!" << std::endl;
-            CHECK(cudaEventRecord(ms_stop_[i], stream_[0]));
-            CHECK(cudaEventRecord(stop_, stream_[0]));
-            CHECK(cudaEventSynchronize(stop_));
+            CUDACHECK(cudaEventRecord(ms_stop_[i], stream_[0]));
+            CUDACHECK(cudaEventRecord(stop_, stream_[0]));
+            CUDACHECK(cudaEventSynchronize(stop_));
         }
         std::cout << "=========================================================" << std::endl;
     }
@@ -382,12 +382,12 @@ bool Profiler::infer(const size_t& num_test, const size_t& batch_size, const int
     milli_sec.resize(11);
 
     for (int i=0; i < 10; i++) {
-        CHECK(cudaEventElapsedTime(&milli_sec[i], ms_stop_[i], ms_stop_[i+1]));
+        CUDACHECK(cudaEventElapsedTime(&milli_sec[i], ms_stop_[i], ms_stop_[i+1]));
         std::cout << "Elapsed time " << i+1 << ": " << milli_sec[i] << std::endl; 
     }
         
     float total_elapsed_time = 0;
-    CHECK(cudaEventElapsedTime(&total_elapsed_time, ms_stop_[0], stop_));
+    CUDACHECK(cudaEventElapsedTime(&total_elapsed_time, ms_stop_[0], stop_));
     std::cout << "Total elapsed time: " << total_elapsed_time << std::endl;
 
     return true;
@@ -409,7 +409,7 @@ bool Profiler::controller(const int stage_idx, const int ee_idx)
     std::cout << "Indicator length: " << ee_batch_size[ee_idx] << std::endl;
     for (size_t j = 0; j < ee_batch_size[ee_idx]; j++){
         int maxposition = std::max_element(res+10*j, res+10*j + 10) - (res+10*j);
-        std::cout << "max value: " << *(res+10*j + maxposition) << std::endl;
+        // std::cout << "max value: " << *(res+10*j + maxposition) << std::endl;
         ee_indicator[ee_idx][j] = (*(res+10*j + maxposition) > profiler_config_.ee_thresholds_[subToEE[stage_idx]]) ? 1 : 0;
     }
     sub_batch_size[stage_idx+1] = std::accumulate(ee_indicator[ee_idx].begin(), ee_indicator[ee_idx].end(), 0);
@@ -510,6 +510,8 @@ ProfilerConfig getInstConfig(const rapidjson::Document& config_doc)
 int main(int argc, char** argv)
 {
     //std::string config_path = argv[1];
+    torch::Tensor tensor = torch::rand({2, 3});
+    std::cout << tensor << std::endl;
     std::string config_path = "../profiler_config.json";
     //std::string config_path = "profiler_config.json";
     std::cout << config_path << std::endl;
