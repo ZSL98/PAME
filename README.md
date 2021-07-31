@@ -3,6 +3,10 @@ Early Termination in Batched Applications
 
 
 ## Early Exit in Inference
+
+### Prerequisites
+Libtorch: Build from source
+
 The following steps are executed in `./Inference`
 
 ### Build Prerequisites
