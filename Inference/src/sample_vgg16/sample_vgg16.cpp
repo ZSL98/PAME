@@ -442,7 +442,7 @@ float Profiler::verifyOutput(const samplesCommon::BufferManager& buffer, const i
     }
     //std::cout << "The number of correct samples is: " << count << endl;
     float accuracy = float(count) / float(sub_batch_size.back());
-    std::cout << "The accuracy of the TRT Engine on " << max_batch_size_ << " data is: " << accuracy << endl;
+    std::cout << "The accuracy of the TRT Engine on " << sub_batch_size.back() << " data is: " << accuracy << endl;
     return accuracy;
 }
 
