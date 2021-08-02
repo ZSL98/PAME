@@ -75,9 +75,14 @@ endif()
 
 if (NOT TARGET protobuf::libprotobuf)
   FIND_PACKAGE(Protobuf REQUIRED)
+  INCLUDE_DIRECTORIES(${Protobuf_INCLUDE_DIR})
 else()
   set(PROTOBUF_LIB "protobuf::libprotobuf")
 endif()
+
+message(STATUS "HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH")
+message(STATUS ${Protobuf_LIBRARY})
+message(STATUS ${Protobuf_INCLUDE_DIR})
 
 if(NOT TARGET onnx_proto)
   # Note: This avoids libprotobuf.so complaining about name collisions at runtime
@@ -112,7 +117,7 @@ endif()
 # --------------------------------
 add_library(nvonnxparser SHARED ${IMPORTER_SOURCES})
 target_include_directories(nvonnxparser PUBLIC ${ONNX_INCLUDE_DIRS} ${TENSORRT_INCLUDE_DIR})
-target_link_libraries(nvonnxparser PUBLIC onnx_proto ${PROTOBUF_LIBRARY} ${TENSORRT_LIBRARY})
+target_link_libraries(nvonnxparser PUBLIC onnx_proto ${Protobuf_LIBRARY} ${TENSORRT_LIBRARY})
 set_target_properties(nvonnxparser PROPERTIES
   VERSION   ${ONNX2TRT_MAJOR}.${ONNX2TRT_MINOR}.${ONNX2TRT_PATCH}
   SOVERSION ${ONNX2TRT_MAJOR}
@@ -121,7 +126,7 @@ set_target_properties(nvonnxparser PROPERTIES
 )
 add_library(nvonnxparser_static STATIC ${IMPORTER_SOURCES})
 target_include_directories(nvonnxparser_static PUBLIC ${ONNX_INCLUDE_DIRS} ${TENSORRT_INCLUDE_DIR})
-target_link_libraries(nvonnxparser_static PUBLIC onnx_proto ${PROTOBUF_LIBRARY} ${TENSORRT_LIBRARY})
+target_link_libraries(nvonnxparser_static PUBLIC onnx_proto ${Protobuf_LIBRARY} ${TENSORRT_LIBRARY})
 
 # --------------------------------
 # Onnxifi library

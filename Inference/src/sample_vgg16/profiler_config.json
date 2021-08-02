@@ -8,7 +8,7 @@
                   "main_arch_6", "main_arch_7", "main_arch_8",
                   "main_arch_9", "main_arch_10"],
     "ee_files": ["vgg16_ee_1", "vgg16_ee_3"],
-    "thresholds": [0, 0, 0, 0, 0, 0],
+    "thresholds": [-10, -10, -10, -10, -10, -10],
     "min_bs": 1,
     "opt_bs": 1,
     "max_bs": 64,
@@ -16,6 +16,7 @@
     "cur_bs": 1,
     "bs_num": 1,
     "test_iter": 1,
+    "copy_method": 0,
     "fp16": false
   }
   

@@ -22,6 +22,8 @@ get_filename_component(TRT_DIR ../../ ABSOLUTE)
 
 SET(SAMPLE_SOURCES sample_vgg16.cpp)
 SET(SAMPLE_HEADERS sample_vgg16.h)
+# SET(CUDA_FUNC_SOURCES ${TRT_DIR}/cuda_func/buffer_copy.cu)
+# SET(CUDA_FUNC_HEADERS ${TRT_DIR}/cuda_func/buffer_copy.cuh)
 SET(SAMPLE_OUT_DIR ${PROJECT_BINARY_DIR}/out)
 SET(TRT_LIB_DIR /home/slzhang/projects/TensorRT-8.0.1.6/lib)
 SET(TRT_OUT_DIR /home/slzhang/projects/ETBA/Inference/src/sample_vgg16/build/out)
@@ -30,6 +32,9 @@ set(ONNX_INCLUDE_DIR "${TRT_DIR}/parsers/onnx")
 set(SAMPLES_DIR ${TRT_DIR}/common)
 set(CUDA_TOOLKIT_ROOT_DIR ${CUDA_INSTALL_DIR})
 set(SAMPLES_COMMON_SOURCES ${SAMPLES_DIR}/logger.cpp)
+
+add_subdirectory(${TRT_DIR}/cuda_func cuda_func.out)
+set (EXTRA_LIBS ${EXTRA_LIBS} cuda_func)
 # set(TORCH_LIB_DIR /home/slzhang/mytool/libtorch/lib)
 
 # set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${TORCH_CXX_FLAGS}")
@@ -68,6 +73,7 @@ set(SAMPLE_DEP_LIBS
     ${RT_LIB}
     ${CMAKE_DL_LIBS}
     ${CMAKE_THREAD_LIBS_INIT}
+    ${EXTRA_LIBS}
 )
 
 target_link_libraries(sample

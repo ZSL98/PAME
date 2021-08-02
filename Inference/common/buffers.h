@@ -28,6 +28,7 @@
 #include <numeric>
 #include <string>
 #include <vector>
+#include "../cuda_func/buffer_copy.cuh"
 
 namespace samplesCommon
 {
@@ -334,9 +335,10 @@ public:
 
     BufferManager(std::shared_ptr<nvinfer1::ICudaEngine> engine, const int batchSize = 0,
         const std::shared_ptr<ManagedBuffer> srcPtr = nullptr, const std::vector<bool>* indicatorPtr = nullptr, 
-        const nvinfer1::IExecutionContext* context = nullptr)
+        int copyMethod = 0, const nvinfer1::IExecutionContext* context = nullptr)
         : mEngine(engine)
         , mBatchSize(batchSize)
+        , mCopyMethod(copyMethod)
     {
         // Full Dims implies no batch size.
         // assert(engine->hasImplicitBatchDimension() || mBatchSize == 0);
@@ -346,6 +348,11 @@ public:
             if (indicatorPtr && srcPtr && i == 0) {
                 // Two sources from the last ee module and the last sub module.
                 std::vector<bool> indicator = *indicatorPtr;
+                int cur_batch_size = indicator.size();
+                bool *indicator_host = new bool[cur_batch_size], *indicator_device = nullptr;
+                for (int j = 0; j < cur_batch_size; j++) {
+                    indicator_host[j] = indicator[j];
+                }
                 size_t next_batch_size = std::accumulate(indicator.begin(), indicator.end(), 0);
 
                 std::shared_ptr<ManagedBuffer> manBuf_ptr = srcPtr;
@@ -359,20 +366,30 @@ public:
                 dims.d[0] = next_batch_size;
                 std::cout << "Two sources. Input size: " << dims << std::endl;
 
-                std::vector<int> stepOverList{};
-                for (int idx = 0; idx < indicator.size(); idx++) {
-                    if (indicator[idx] == 1) {stepOverList.emplace_back(idx);}
+                float* dstPtr_ = static_cast<float*>(new_manBuf->deviceBuffer.data());
+                float* srcPtr_ = static_cast<float*>(manBuf_ptr->deviceBuffer.data());
+                int* stepOverList = new int[next_batch_size], *stepOverList_device = nullptr;
+
+                int copy_idx = 0;
+                for (int idx = 0; idx < cur_batch_size; idx++) {
+                    if (indicator[idx] == 1) {stepOverList[copy_idx] = idx; copy_idx++;}
                 }
 
-                size_t tSize = samplesCommon::getElementSize(type);
-                for (int stepOveridx = 0; stepOveridx < next_batch_size; stepOveridx++) {
-                    //std::cout << "Copying: " << stepOveridx << std::endl;
-                    const cudaMemcpyKind memcpyType = cudaMemcpyDeviceToDevice;
-                    float* dstPtr_ = static_cast<float*>(new_manBuf->deviceBuffer.data());
-                    float* srcPtr_ = static_cast<float*>(manBuf_ptr->deviceBuffer.data());
-                    cudaMemcpy(dstPtr_ + stepOveridx*singleVol, 
-                                srcPtr_ + stepOverList[stepOveridx]*singleVol, 
-                                singleVol*tSize, memcpyType);
+                if (mCopyMethod == 0) {
+                    useCUDA();
+                    CUDACHECK(cudaMalloc(&stepOverList_device, next_batch_size * sizeof(int)));
+                    CUDACHECK(cudaMemcpy(stepOverList_device, stepOverList, next_batch_size * sizeof(int), cudaMemcpyHostToDevice));
+                    buffercopy(dstPtr_, srcPtr_, singleVol*next_batch_size, stepOverList_device, singleVol);
+                }
+                else {
+                    size_t tSize = samplesCommon::getElementSize(type);
+                    for (int stepOveridx = 0; stepOveridx < next_batch_size; stepOveridx++) {
+                        //std::cout << "Copying: " << stepOveridx << std::endl;
+                        const cudaMemcpyKind memcpyType = cudaMemcpyDeviceToDevice;
+                        cudaMemcpy(dstPtr_ + stepOveridx*singleVol, 
+                                    srcPtr_ + stepOverList[stepOveridx]*singleVol, 
+                                    singleVol*tSize, memcpyType);
+                    }
                 }
 
                 mManagedBuffers.emplace_back(std::move(new_manBuf));
@@ -621,6 +638,7 @@ private:
 
     std::shared_ptr<nvinfer1::ICudaEngine> mEngine;              //!< The pointer to the engine
     int mBatchSize;                                              //!< The batch size for legacy networks, 0 otherwise.
+    int mCopyMethod;
     std::vector<std::shared_ptr<ManagedBuffer>> mManagedBuffers; //!< The vector of pointers to managed buffers
     std::vector<void*> mDeviceBindings;                          //!< The vector of device buffers needed for engine execution
 };

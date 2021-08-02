@@ -130,7 +130,7 @@ public:
 
     bool build();
 
-    bool infer(const size_t& num_test, const size_t& batch_size, const int batch_idx);
+    bool infer(const size_t& num_test, const size_t& batch_size, const int batch_idx, const int copy_method);
 
     bool multistream_infer(
     const size_t& num_test, const size_t& batch_size = 1,

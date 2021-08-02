@@ -225,7 +225,7 @@ bool Profiler::constructeeNet(
     return true;
 }
 
-bool Profiler::infer(const size_t& num_test, const size_t& batch_size, const int batch_idx)
+bool Profiler::infer(const size_t& num_test, const size_t& batch_size, const int batch_idx, const int copy_method)
 {
     // Read the input data into the managed stage1 buffers
     // assert(mParams.inputTensorNames.size() == 1);
@@ -290,7 +290,7 @@ bool Profiler::infer(const size_t& num_test, const size_t& batch_size, const int
             std::shared_ptr<samplesCommon::ManagedBuffer> srcPtr = sub_buffer_manager_[i-1].getOutputBuffer();
             if (stage_type[i-1] == 1){
                 // Two sources
-                samplesCommon::BufferManager tmp_buffer1(sub_engines_[i], sub_batch_size[i], srcPtr, &ee_indicator[subToEE[i-1]]);
+                samplesCommon::BufferManager tmp_buffer1(sub_engines_[i], sub_batch_size[i], srcPtr, &ee_indicator[subToEE[i-1]], copy_method);
                 sub_buffer_manager_.emplace_back(std::move(tmp_buffer1));
             }
             else {
@@ -320,6 +320,7 @@ bool Profiler::infer(const size_t& num_test, const size_t& batch_size, const int
                 std::cout << "Error when inference " << i << "-th ee model" << std::endl;
                 return false;
             }
+            // ee_buffer_manager_[map_i].copyOutputToHost();
 
             auto controlled = controller(i, map_i);
             if (!controlled) {
@@ -339,7 +340,7 @@ bool Profiler::infer(const size_t& num_test, const size_t& batch_size, const int
 
             std::shared_ptr<samplesCommon::ManagedBuffer> srcPtr = sub_buffer_manager_[i-1].getOutputBuffer();
             //std::shared_ptr<samplesCommon::ManagedBuffer> eeResultPtr = ee_buffer_manager_[i/2-1].getOutputBuffer();
-            samplesCommon::BufferManager tmp_buffer(sub_engines_[i], sub_batch_size[i], srcPtr, &ee_indicator[subToEE[i-1]]);
+            samplesCommon::BufferManager tmp_buffer(sub_engines_[i], sub_batch_size[i], srcPtr, &ee_indicator[subToEE[i-1]], copy_method);
             sub_buffer_manager_.emplace_back(std::move(tmp_buffer));
             //std::cout << "Buffer management of the " << i << "-th sub buffer done. " << std::endl;
 
@@ -532,7 +533,7 @@ int main(int argc, char** argv)
 
     inst.build();
     for (int batch_idx = 0; batch_idx < inst.batch_num_; batch_idx++) {
-        inst.infer(config_doc["test_iter"].GetUint(), config_doc["cur_bs"].GetUint(), batch_idx);
+        inst.infer(config_doc["test_iter"].GetUint(), config_doc["cur_bs"].GetUint(), batch_idx, config_doc["copy_method"].GetUint());
         std::cout << inst.accuracy[batch_idx] << std::endl;
     }
     //inst.exportTrtModel(profiler_config.getDataDir());
