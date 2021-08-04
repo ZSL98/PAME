@@ -50,6 +50,9 @@ bool Profiler::build()
     ee_output_dims_.resize(ee_model_cnt);
     ee_output_tensor_names_.resize(ee_model_cnt);
     ee_indicator.resize(ee_model_cnt);
+    stopped_list.resize(ee_model_cnt);
+    copy_list.resize(ee_model_cnt);
+    infer_list.resize(ee_model_cnt);
     accuracy.resize(batch_num_);
 
     for (size_t i = 0; i < sub_model_cnt; i++) {
@@ -236,6 +239,8 @@ bool Profiler::infer(const size_t& num_test, const size_t& batch_size, const int
     size_t init_batch_size = max_batch_size_;
     sub_batch_size[0] = init_batch_size;
     ee_batch_size[0] = init_batch_size;
+    std::vector<bool> init_indicator(max_batch_size_, 1);
+    ee_indicator[0].assign(init_indicator.begin(), init_indicator.end());
 
     subToEE[1] = 0;
     subToEE[3] = 1;
@@ -290,7 +295,7 @@ bool Profiler::infer(const size_t& num_test, const size_t& batch_size, const int
             std::shared_ptr<samplesCommon::ManagedBuffer> srcPtr = sub_buffer_manager_[i-1].getOutputBuffer();
             if (stage_type[i-1] == 1){
                 // Two sources
-                samplesCommon::BufferManager tmp_buffer1(sub_engines_[i], sub_batch_size[i], srcPtr, &ee_indicator[subToEE[i-1]], copy_method);
+                samplesCommon::BufferManager tmp_buffer1(sub_engines_[i], sub_batch_size[i], srcPtr, &copy_list[subToEE[i-1]], copy_method);
                 sub_buffer_manager_.emplace_back(std::move(tmp_buffer1));
             }
             else {
@@ -320,15 +325,22 @@ bool Profiler::infer(const size_t& num_test, const size_t& batch_size, const int
                 std::cout << "Error when inference " << i << "-th ee model" << std::endl;
                 return false;
             }
-            // ee_buffer_manager_[map_i].copyOutputToHost();
+
+            ee_buffer_manager_[map_i].copyOutputToHost();
 
             auto controlled = controller(i, map_i);
             if (!controlled) {
                 std::cout << "Controller " << i << " broken" << std::endl;
                 return false;
-            }       
-
+            }
             CUDACHECK(cudaEventRecord(ee_stop_[subToEE[i]], stream_[1]));
+
+            for (int j=0; j<infer_list[map_i].size(); j++){
+                std::cout << infer_list[map_i][j] << " ";
+            }
+            std::cout << std::endl;
+            verifyOutput(ee_buffer_manager_[map_i], infer_list[map_i], batch_idx);
+
         }
         // Single Main Arch Stage: stage_type = 2
         else if (stage_type[i] == 2){
@@ -340,7 +352,7 @@ bool Profiler::infer(const size_t& num_test, const size_t& batch_size, const int
 
             std::shared_ptr<samplesCommon::ManagedBuffer> srcPtr = sub_buffer_manager_[i-1].getOutputBuffer();
             //std::shared_ptr<samplesCommon::ManagedBuffer> eeResultPtr = ee_buffer_manager_[i/2-1].getOutputBuffer();
-            samplesCommon::BufferManager tmp_buffer(sub_engines_[i], sub_batch_size[i], srcPtr, &ee_indicator[subToEE[i-1]], copy_method);
+            samplesCommon::BufferManager tmp_buffer(sub_engines_[i], sub_batch_size[i], srcPtr, &copy_list[subToEE[i-1]], copy_method);
             sub_buffer_manager_.emplace_back(std::move(tmp_buffer));
             //std::cout << "Buffer management of the " << i << "-th sub buffer done. " << std::endl;
 
@@ -369,7 +381,20 @@ bool Profiler::infer(const size_t& num_test, const size_t& batch_size, const int
                 return false;
             }
             sub_buffer_manager_[i].copyOutputToHost();
-            accuracy[batch_idx] = verifyOutput(sub_buffer_manager_[i], 0);
+
+            std::vector<int> final_list;
+            for (size_t i = 0; i < max_batch_size_; i++){
+                std::cout << ee_indicator[ee_model_cnt-1][i];
+                if (ee_indicator[ee_model_cnt-1][i] == 1) {
+                    final_list.emplace_back(i);
+                }
+            }
+            std::cout << std::endl;
+            // for (int j=0; j<final_list.size(); j++){
+            //     std::cout << final_list[j] << " ";
+            // }
+            // std::cout << std::endl;
+            accuracy[batch_idx] = verifyOutput(sub_buffer_manager_[i], final_list, batch_idx);
 
             std::cout << "Inference finished!" << std::endl;
             CUDACHECK(cudaEventRecord(ms_stop_[i], stream_[0]));
@@ -401,25 +426,53 @@ std::vector<void*> Profiler::getDeviceBindings(const size_t& model_index)
 
 bool Profiler::controller(const int stage_idx, const int ee_idx)
 {
-    ee_indicator[ee_idx].resize(ee_batch_size[ee_idx]);
-    std::shared_ptr<samplesCommon::ManagedBuffer> eeResultPtr = ee_buffer_manager_[ee_idx].getOutputBuffer();
-    const cudaMemcpyKind memcpyType = cudaMemcpyDeviceToHost;
-    cudaMemcpy(eeResultPtr->hostBuffer.data(), eeResultPtr->deviceBuffer.data(),
-                eeResultPtr->hostBuffer.nbBytes(), memcpyType);
-    float *res = static_cast<float*>(eeResultPtr->hostBuffer.data());
-    std::cout << "Indicator length: " << ee_batch_size[ee_idx] << std::endl;
-    for (size_t j = 0; j < ee_batch_size[ee_idx]; j++){
-        int maxposition = std::max_element(res+10*j, res+10*j + 10) - (res+10*j);
-        // std::cout << "max value: " << *(res+10*j + maxposition) << std::endl;
-        ee_indicator[ee_idx][j] = (*(res+10*j + maxposition) > profiler_config_.ee_thresholds_[subToEE[stage_idx]]) ? 1 : 0;
+    std::vector<bool> init_indicator(max_batch_size_, 1), last_indicator;
+    if (ee_idx == 0){
+        last_indicator.assign(init_indicator.begin(), init_indicator.end());
+    }
+    else {
+        last_indicator.assign(ee_indicator[ee_idx-1].begin(), ee_indicator[ee_idx-1].end());
+    }
+    // The length of ee_indicator is the max batch size.
+    ee_indicator[ee_idx].resize(max_batch_size_);
+    float *res = static_cast<float*>(ee_buffer_manager_[ee_idx].getOutputHostBuffer());
+    int cur_count = 0;
+    for (size_t i = 0; i < max_batch_size_; i++){
+        if (last_indicator[i] == 1) {
+            int maxposition = std::max_element(res+10*cur_count, res+10*cur_count + 10) - (res+10*cur_count);
+            ee_indicator[ee_idx][i] = (*(res+10*cur_count + maxposition) > profiler_config_.ee_thresholds_[subToEE[stage_idx]]) ? 0 : 1;
+            cur_count++;
+        }
     }
     sub_batch_size[stage_idx+1] = std::accumulate(ee_indicator[ee_idx].begin(), ee_indicator[ee_idx].end(), 0);
-    //std::cout << "Batch size of next stage: " << sub_batch_size[stage_idx+1] << std::endl;
 
+    // Below is an example
+    // last_indicator: 1 1 0 0 1
+    // this_indicator: 0 1 0 0 0
+    // stopped_list: {0, 4}
+    // infer_list: {0, 2}
+    // copy_list: {1}
+    int copy_pos = 0;
+    for (size_t i = 0; i < max_batch_size_; i++){
+        std::cout << ee_indicator[ee_idx][i];
+        if (last_indicator[i] != ee_indicator[ee_idx][i]) {
+            stopped_list[ee_idx].emplace_back(i);
+        }
+        if (last_indicator[i] == 1) {
+            if (last_indicator[i] == ee_indicator[ee_idx][i]) {
+                copy_list[ee_idx].emplace_back(copy_pos);
+            }
+            if (last_indicator[i] != ee_indicator[ee_idx][i]) {
+                infer_list[ee_idx].emplace_back(copy_pos);
+            }
+            copy_pos++;
+        }
+    }
+    std::cout << std::endl;
     return true;
 }
 
-float Profiler::verifyOutput(const samplesCommon::BufferManager& buffer, const int batch_idx = 0)
+float Profiler::verifyOutput(const samplesCommon::BufferManager& buffer, const std::vector<int> check_list, const int batch_idx = 0)
 {
     const int inputC = 3;
     const int inputH = 32;
@@ -428,23 +481,21 @@ float Profiler::verifyOutput(const samplesCommon::BufferManager& buffer, const i
     const int volImg = inputC * inputH * inputW;
     const int imageSize = volImg + 1;
     int i = 0;
-    float* output = static_cast<float*>(buffer.getHostBuffer(sub_output_tensor_names_[10]));
+    float* output = static_cast<float*>(buffer.getOutputHostBuffer());
     int maxposition{0};
     int count{0};
-    //for (size_t i = 0; i < 10; i++) {
-    //    std::cout << *(output + i) << std::endl;
-    //}
-    for (size_t i = 0; i < sub_batch_size.back(); i++) {
+    for (size_t i = 0; i < check_list.size(); i++) {
         maxposition = std::max_element(output+10*i, output+10*i + 10) - (output+10*i);
         //std::cout << "maxposition: " << maxposition << " correctposition: " << int(cifarbinary[(i+32) * imageSize]) << endl;
-        if (maxposition == int(cifarbinary[(i + max_batch_size_ * batch_idx) * imageSize])) {
+        if (maxposition == int(cifarbinary[(check_list[i] + max_batch_size_ * batch_idx) * imageSize])) {
             ++count;
         }
     }
-    //std::cout << "The number of correct samples is: " << count << endl;
-    float accuracy = float(count) / float(sub_batch_size.back());
-    std::cout << "The accuracy of the TRT Engine on " << sub_batch_size.back() << " data is: " << accuracy << endl;
-    return accuracy;
+    // std::cout << "The number of correct samples is: " << count << endl;
+    // float accuracy = float(count) / float(sub_batch_size.back());
+    std::cout << "The number of correct samples is " << float(count) << endl;
+    // std::cout << "The accuracy of the TRT Engine on " << sub_batch_size.back() << " data is: " << accuracy << endl;
+    return float(count);
 }
 
 

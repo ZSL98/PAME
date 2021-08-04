@@ -28,7 +28,6 @@
 #include <numeric>
 #include <string>
 #include <vector>
-#include "../cuda_func/buffer_copy.cuh"
 
 namespace samplesCommon
 {
@@ -77,14 +76,12 @@ public:
         }
     }
 
-    
     GenericBuffer(GenericBuffer&& buf)
         : mSize(buf.mSize)
         , mCapacity(buf.mCapacity)
         , mType(buf.mType)
         , mBuffer(buf.mBuffer)
     {
-        std::cout << "move construction" << std::endl;
         buf.mSize = 0;
         buf.mCapacity = 0;
         buf.mType = nvinfer1::DataType::kFLOAT;
@@ -107,37 +104,6 @@ public:
         }
         return *this;
     }
-
-    GenericBuffer(const GenericBuffer& buf)
-        : mSize(buf.mSize)
-        , mCapacity(buf.mCapacity)
-        , mType(buf.mType)
-        , mBuffer(buf.mBuffer)
-    {
-        std::cout << "move construction" << std::endl;
-        // buf.mSize = 0;
-        // buf.mCapacity = 0;
-        // buf.mType = nvinfer1::DataType::kFLOAT;
-        // buf.mBuffer = nullptr;
-    }
-
-    GenericBuffer& operator=(const GenericBuffer& buf)
-    {
-        if (this != &buf)
-        {
-            freeFn(mBuffer);
-            mSize = buf.mSize;
-            mCapacity = buf.mCapacity;
-            mType = buf.mType;
-            mBuffer = buf.mBuffer;
-            // Reset buf.
-            // buf.mSize = 0;
-            // buf.mCapacity = 0;
-            // buf.mBuffer = nullptr;
-        }
-        return *this;
-    }
-    
 
     //!
     //! \brief Returns pointer to underlying array.
@@ -186,11 +152,6 @@ public:
             }
             mCapacity = newSize;
         }
-    }
-
-    void renavigation(const void* srcPtr)
-    {
-        mBuffer = srcPtr;
     }
 
     //!
@@ -262,52 +223,6 @@ class ManagedBuffer
 public:
     DeviceBuffer deviceBuffer;
     HostBuffer hostBuffer;
-
-    ManagedBuffer() {}
-
-    ManagedBuffer(size_t vol_, nvinfer1::DataType type_)
-    {
-        //std::cout << "constructor" <<std::endl;
-        deviceBuffer = DeviceBuffer(vol_, type_);
-        hostBuffer = HostBuffer(vol_, type_);
-    }
-
-    
-    ManagedBuffer(const ManagedBuffer &buf)
-    {
-        //std::cout << "copy constructor" << std::endl;
-        std::cout << buf.deviceBuffer.nbBytes() << std::endl;
-        std::cout << buf.hostBuffer.nbBytes() << std::endl;
-        deviceBuffer = buf.deviceBuffer;
-        hostBuffer = buf.hostBuffer;
-    }
-
-    ManagedBuffer(ManagedBuffer&& buf): deviceBuffer(buf.deviceBuffer), hostBuffer(buf.hostBuffer) {std::cout << "move constructor" <<std::endl;}
-
-    
-    ManagedBuffer& operator=(ManagedBuffer&& buf)
-    {
-        std::cout << "move assignment" <<std::endl;
-        if (this != &buf)
-        {
-            deviceBuffer = buf.deviceBuffer;
-            hostBuffer = buf.hostBuffer;
-        }
-        return *this;
-    }
-
-    ManagedBuffer& operator=(const ManagedBuffer& buf)
-    {
-        std::cout << "copy assignment" <<std::endl;
-        if (this != &buf)
-        {
-            deviceBuffer = buf.deviceBuffer;
-            hostBuffer = buf.hostBuffer;
-        }
-        return *this;
-    }
-    
-    ~ManagedBuffer() = default; 
 };
 
 //!
@@ -326,125 +241,34 @@ public:
     //!
     //! \brief Create a BufferManager for handling buffer interactions with engine.
     //!
-    BufferManager() {}
-    BufferManager(BufferManager&& buf)
-    : mEngine(std::move(buf.mEngine))
-    , mBatchSize(std::move(buf.mBatchSize))
-    , mManagedBuffers(std::move(buf.mManagedBuffers))
-    , mDeviceBindings(std::move(buf.mDeviceBindings)){}
-
     BufferManager(std::shared_ptr<nvinfer1::ICudaEngine> engine, const int batchSize = 0,
-        const std::shared_ptr<ManagedBuffer> srcPtr = nullptr, const std::vector<int>* copyListPtr = nullptr, 
-        int copyMethod = 0, const nvinfer1::IExecutionContext* context = nullptr)
+        const nvinfer1::IExecutionContext* context = nullptr)
         : mEngine(engine)
         , mBatchSize(batchSize)
-        , mCopyMethod(copyMethod)
     {
         // Full Dims implies no batch size.
         // assert(engine->hasImplicitBatchDimension() || mBatchSize == 0);
         // Create host and device buffers
         for (int i = 0; i < mEngine->getNbBindings(); i++)
-        {            
-            if (copyListPtr && srcPtr && i == 0) {
-                // Two sources from the last ee module and the last sub module.
-                // std::vector<bool> indicator = *indicatorPtr;
-                // int cur_batch_size = indicator.size();
-                // bool *indicator_host = new bool[cur_batch_size], *indicator_device = nullptr;
-                // for (int j = 0; j < cur_batch_size; j++) {
-                //     indicator_host[j] = indicator[j];
-                // }
-                // size_t next_batch_size = std::accumulate(indicator.begin(), indicator.end(), 0);
-
-                std::vector<int> tmpCopyList = *copyListPtr;
-                size_t next_batch_size = tmpCopyList.size();
-                size_t cur_batch_size = batchSize;
-
-                std::shared_ptr<ManagedBuffer> manBuf_ptr = srcPtr;
-
-                nvinfer1::DataType type = mEngine->getBindingDataType(i);
-                auto dims = context ? context->getBindingDimensions(i) : mEngine->getBindingDimensions(i);
-                dims.d[0] = 1;
-                size_t singleVol = samplesCommon::volume(dims);
-                size_t vol = singleVol * next_batch_size;
-                std::shared_ptr<ManagedBuffer> new_manBuf{new ManagedBuffer(vol, type)};
-                dims.d[0] = next_batch_size;
-                std::cout << "Two sources. Input size: " << dims << std::endl;
-
-                float* dstPtr_ = static_cast<float*>(new_manBuf->deviceBuffer.data());
-                float* srcPtr_ = static_cast<float*>(manBuf_ptr->deviceBuffer.data());
-                int* copyList = new int[next_batch_size], *copyList_device = nullptr;
-
-                for (int idx = 0; idx < next_batch_size; idx++) {
-                    copyList[idx] = tmpCopyList[idx];
-                }
-
-                if (mCopyMethod == 0) {
-                    // useCUDA();
-                    CUDACHECK(cudaMalloc(&copyList_device, next_batch_size * sizeof(int)));
-                    CUDACHECK(cudaMemcpy(copyList_device, copyList, next_batch_size * sizeof(int), cudaMemcpyHostToDevice));
-                    buffercopy(dstPtr_, srcPtr_, singleVol*next_batch_size, copyList_device, singleVol);
-                }
-                else {
-                    size_t tSize = samplesCommon::getElementSize(type);
-                    for (int stepOveridx = 0; stepOveridx < next_batch_size; stepOveridx++) {
-                        //std::cout << "Copying: " << stepOveridx << std::endl;
-                        const cudaMemcpyKind memcpyType = cudaMemcpyDeviceToDevice;
-                        cudaMemcpy(dstPtr_ + stepOveridx*singleVol, 
-                                    srcPtr_ + copyList[stepOveridx]*singleVol, 
-                                    singleVol*tSize, memcpyType);
-                    }
-                }
-
-                mManagedBuffers.emplace_back(std::move(new_manBuf));
-                mDeviceBindings.emplace_back(mManagedBuffers.back()->deviceBuffer.data());
-                continue;
-            }
-            else if (!copyListPtr && srcPtr && i == 0) {
-                // One source from the last sub module.
-                auto dims = mEngine->getBindingDimensions(i);
-                dims.d[0] = batchSize;
-                std::cout << "One source. Input size: " << dims << std::endl;
-                std::shared_ptr<ManagedBuffer> manBuf_ptr = srcPtr;
-                mManagedBuffers.emplace_back(std::move(manBuf_ptr));
-                mDeviceBindings.emplace_back(mManagedBuffers.back()->deviceBuffer.data());
-                continue;
-            }
-            else if (i == 0) {
-                auto dims = mEngine->getBindingDimensions(i);
-                dims.d[0] = batchSize;
-                std::cout << "No source. Input size: " << dims << std::endl;
-            }
-
+        {
             auto dims = context ? context->getBindingDimensions(i) : mEngine->getBindingDimensions(i);
-            //size_t vol = context || !mBatchSize ? 1 : static_cast<size_t>(mBatchSize);
+            // dims.d[0] = batchSize;
+            size_t vol = context || !mBatchSize ? 1 : static_cast<size_t>(mBatchSize);
             nvinfer1::DataType type = mEngine->getBindingDataType(i);
-            /*
             int vecDim = mEngine->getBindingVectorizedDim(i);
-            std::cout << "VecDim: " << vecDim << std::endl;
             if (-1 != vecDim) // i.e., 0 != lgScalarsPerVector
             {
-                std::cout << "-1 != vecDim" << std::endl;
                 int scalarsPerVec = mEngine->getBindingComponentsPerElement(i);
-                std::cout << "scalarsPerVec: " << scalarsPerVec << std::endl;
                 dims.d[vecDim] = divUp(dims.d[vecDim], scalarsPerVec);
-                std::cout << "NewDims: " << dims << std::endl;
                 vol *= scalarsPerVec;
             }
-            */
-            dims.d[0] = mBatchSize;
-            size_t vol = samplesCommon::volume(dims);
-            std::shared_ptr<ManagedBuffer> manBuf{new ManagedBuffer(vol, type)};
-            //mDeviceBindings.emplace_back(manBuf->deviceBuffer.data());
+            dims.d[0] = batchSize;
+            vol *= samplesCommon::volume(dims);
+            std::unique_ptr<ManagedBuffer> manBuf{new ManagedBuffer()};
+            manBuf->deviceBuffer = DeviceBuffer(vol, type);
+            manBuf->hostBuffer = HostBuffer(vol, type);
+            mDeviceBindings.emplace_back(manBuf->deviceBuffer.data());
             mManagedBuffers.emplace_back(std::move(manBuf));
-            //std::cout << mManagedBuffers.back()->deviceBuffer.data() <<std::endl;
-            mDeviceBindings.emplace_back(mManagedBuffers.back()->deviceBuffer.data());
-
-            if (i != 0) {
-                auto dims = mEngine->getBindingDimensions(i);
-                dims.d[0] = -1;
-                std::cout << "Output size: " << dims << std::endl;
-                std::cout << "\n" << std::endl;
-            }
         }
     }
 
@@ -465,16 +289,6 @@ public:
         return mDeviceBindings;
     }
 
-    std::shared_ptr<ManagedBuffer> getInputBuffer()
-    {
-        return mManagedBuffers[0];
-    }
-
-    std::shared_ptr<ManagedBuffer> getOutputBuffer()
-    {
-        return mManagedBuffers[1];
-    }
-
     //!
     //! \brief Returns the device buffer corresponding to tensorName.
     //!        Returns nullptr if no such tensor can be found.
@@ -492,17 +306,6 @@ public:
     {
         return getBuffer(true, tensorName);
     }
-
-    void* getInputHostBuffer() const
-    {
-        return mManagedBuffers[0]->hostBuffer.data();
-    }
-
-    void* getOutputHostBuffer() const
-    {
-        return mManagedBuffers[1]->hostBuffer.data();
-    }
-
 
     //!
     //! \brief Returns the size of the host and device buffers that correspond to tensorName.
@@ -643,17 +446,16 @@ private:
             if ((copyInput && mEngine->bindingIsInput(i)) || (!copyInput && !mEngine->bindingIsInput(i)))
             {
                 if (async)
-                    CUDACHECK(cudaMemcpyAsync(dstPtr, srcPtr, byteSize, memcpyType, stream));
+                    cudaMemcpyAsync(dstPtr, srcPtr, byteSize, memcpyType, stream);
                 else
-                    CUDACHECK(cudaMemcpy(dstPtr, srcPtr, byteSize, memcpyType));
+                    cudaMemcpy(dstPtr, srcPtr, byteSize, memcpyType);
             }
         }
     }
 
     std::shared_ptr<nvinfer1::ICudaEngine> mEngine;              //!< The pointer to the engine
     int mBatchSize;                                              //!< The batch size for legacy networks, 0 otherwise.
-    int mCopyMethod;
-    std::vector<std::shared_ptr<ManagedBuffer>> mManagedBuffers; //!< The vector of pointers to managed buffers
+    std::vector<std::unique_ptr<ManagedBuffer>> mManagedBuffers; //!< The vector of pointers to managed buffers
     std::vector<void*> mDeviceBindings;                          //!< The vector of device buffers needed for engine execution
 };
 

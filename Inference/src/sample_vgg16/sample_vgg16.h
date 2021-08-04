@@ -180,6 +180,9 @@ private:
     std::vector<samplesCommon::BufferManager> sub_buffer_manager_;
     std::vector<samplesCommon::BufferManager> ee_buffer_manager_;
     std::vector<std::vector<bool>> ee_indicator;
+    std::vector<std::vector<int>> stopped_list;
+    std::vector<std::vector<int>> copy_list;
+    std::vector<std::vector<int>> infer_list;
 
     std::vector<size_t> ee_batch_size;
     std::vector<size_t> sub_batch_size;
@@ -205,7 +208,7 @@ private:
     std::vector<void*> getDeviceBindings(const size_t& sub_index);
     bool readData();
     bool processInput(const samplesCommon::BufferManager& buffer, const int batch_idx);
-    float verifyOutput(const samplesCommon::BufferManager& buffer, const int batch_idx);
+    float verifyOutput(const samplesCommon::BufferManager& buffer, const std::vector<int> check_list, const int batch_idx);
     bool controller(const int stage_idx, const int ee_idx);
 
     bool setBindingDimentions(const size_t& batch_size);
