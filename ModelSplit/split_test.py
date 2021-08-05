@@ -104,7 +104,33 @@ if __name__ == "__main__":
     # inputs = tokenizer("Hello world!", return_tensors="pt")
     # torch.onnx.export(model, inputs, "./models/bert-base.onnx", verbose=True, input_names=input_names, output_names=output_names)
 
-    convert(framework="pt", model="bert-base-cased", output=Path("models/bert-base/bert-base-cased.onnx"), opset=11)
+    # convert(framework="pt", model="bert-base-cased", output=Path("models/bert-base/bert-base-cased.onnx"), opset=11)
 
-    # model = loadOnnxModel("./models/vgg16.onnx")
-    # print(getNodeNum(model))
+    model = loadOnnxModel("./models_out/new_vgg.onnx")
+    # model = loadOnnxModel("./models/bert-base/bert-base-cased.onnx")
+    # print(getNodeNameList(model))
+    # Node_,input_name_,output_name_ = getNodeAndIOname("Gemm_1161",model)
+    # print(Node_)
+    # print(input_name_)
+    # print(output_name_)
+    # print(getInputTensorValueInfo(['1607', 'pooler.dense.weight', 'pooler.dense.bias'], model))
+    # print(model.graph.node[0].name)
+    # print(model.graph.node[0].input)
+    # print(model.graph.node[0].output)
+    # print(model.graph.node[100].input.type.tensor_type)
+    # print(model.graph.node[1].input)
+    # print(model.graph.node[1].output)
+    # # print(model.graph.input[0])
+    graph_def = helper.make_graph(
+                [model.graph.node[10].name],
+                "Fuse",
+                inputs=model.graph.node[10].input,
+                outputs=model.graph.node[10].output
+            )
+    model_def = helper.make_model(graph_def, producer_name='onnx-example')
+
+    # oldnodes = [n for n in model.graph.node]
+    # newnodes = oldnodes[0:2]
+    # del model.graph.node[:]
+    # model.graph.node.extend(newnodes)
+    onnx.save(model, "./models_out/new_vgg_1.onnx")
