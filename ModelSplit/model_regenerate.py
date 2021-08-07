@@ -5,49 +5,127 @@ import onnx.helper as helper
 from onnx import shape_inference, TensorProto
 import sys
 
-ONNX_DTYPE = {
-    0: TensorProto.FLOAT,
-    1: TensorProto.FLOAT,
-    2: TensorProto.UINT8,
-    3: TensorProto.INT8,
-    4: TensorProto.UINT16,
-    5: TensorProto.INT16,
-    6: TensorProto.INT32,
-    7: TensorProto.INT64,
-    8: TensorProto.STRING,
-    9: TensorProto.BOOL
-}
+class Extractor:
+    def __init__(self, model):  # type: (ModelProto) -> None
+        self.model = onnx.shape_inference.infer_shapes(model)
+        self.graph = self.model.graph
+        self.wmap = self._build_name2obj_dict(self.graph.initializer)
+        self.vimap = self._build_name2obj_dict(self.graph.value_info)
 
-# load model
-onnx_model = onnx.load("./models/vgg16.onnx")
-graph = onnx_model.graph
+    @staticmethod
+    def _build_name2obj_dict(objs):  # type: ignore
+        return {obj.name: obj for obj in objs}
 
-# rewrite the input tensor of graph
-input_tensor = graph.input[0]
-input_shape = input_tensor.type.tensor_type.shape.dim
-input_tensor_new = onnx.helper.make_tensor_value_info(name = input_tensor.name, elem_type = 1, 
-                                                      shape = [1, input_shape[1].dim_value, input_shape[2].dim_value, input_shape[3].dim_value])
-graph.input.remove(input_tensor)
-graph.input.insert(0, input_tensor_new)
+    def _collect_new_io_core(self, original_io, io_names_to_extract):  # type: ignore
+        original_io_map = self._build_name2obj_dict(original_io)
+        original_io_names = set(original_io_map.keys())
+        s_io_names_to_extract = set(io_names_to_extract)
+        io_names_to_keep = s_io_names_to_extract & original_io_names
+        new_io_names_to_add = s_io_names_to_extract - original_io_names
 
-# append all tensor infos to graph input
-weight_infos = []
-tensors = graph.initializer
-for i, tensor in enumerate(tensors):
-    value_info = helper.make_tensor_value_info(tensor.name, ONNX_DTYPE[tensor.data_type], tensor.dims)
-    weight_infos.append(value_info)
-    graph.input.insert(i+1, value_info) # because 0 is for placeholder, so start index is 1
+        new_io_tensors = []
+        for name in io_names_to_keep:
+            new_io_tensors.append(original_io_map[name])
+        for name in new_io_names_to_add:
+            # activation become input or output
+            new_io_tensors.append(self.vimap[name])
 
-# run node shape inference
-node = graph.node
-value_info = graph.value_info
-print("Before shape inference: \n")
-print(value_info)
-print("------------------------------------------------------------")
-print("After shape inference: \n")
-inferred_onnx_model = shape_inference.infer_shapes(onnx_model)
-onnx.checker.check_model(onnx_model)
-inferred_graph = inferred_onnx_model.graph
-inferred_value_info = inferred_graph.value_info
-print(inferred_value_info)
-onnx.save(inferred_onnx_model,"./models_out/new_vgg.onnx")
+        # adjust sequence
+        new_io_tensors_map = self._build_name2obj_dict(new_io_tensors)
+        return [new_io_tensors_map[name] for name in io_names_to_extract]
+
+    def _collect_new_inputs(self, names):  # type: (List[Text]) -> List[ValueInfoProto]
+        return self._collect_new_io_core(self.graph.input, names)  # type: ignore
+
+    def _collect_new_outputs(self, names):  # type: (List[Text]) -> List[ValueInfoProto]
+        return self._collect_new_io_core(self.graph.output, names)  # type: ignore
+
+    def _dfs_search_reachable_nodes(
+            self,
+            node_output_name,  # type: Text
+            graph_input_names,  # type: List[Text]
+            reachable_nodes,  # type: List[NodeProto]
+    ):  # type: (...) -> None
+        if node_output_name in graph_input_names:
+            return
+        for node in self.graph.node:
+            if node in reachable_nodes:
+                continue
+            if node_output_name not in node.output:
+                continue
+            reachable_nodes.append(node)
+            for name in node.input:
+                self._dfs_search_reachable_nodes(name, graph_input_names, reachable_nodes)
+
+    def _collect_reachable_nodes(
+            self,
+            input_names,  # type: List[Text]
+            output_names,  # type: List[Text]
+    ):  # type: (...) -> List[NodeProto]
+        reachable_nodes = list()  # type: ignore
+        for name in output_names:
+            self._dfs_search_reachable_nodes(name, input_names, reachable_nodes)
+        # needs to be topology sorted.
+        nodes = [n for n in self.graph.node if n in reachable_nodes]
+        return nodes
+
+    def _collect_reachable_tensors(
+            self,
+            nodes,  # type: List[NodeProto]
+    ):  # type: (...) -> Tuple[List[TensorProto], List[ValueInfoProto]]
+        all_tensors_name = set()
+        for node in nodes:
+            for name in node.input:
+                all_tensors_name.add(name)
+            for name in node.output:
+                all_tensors_name.add(name)
+
+        initializer = [self.wmap[t] for t in self.wmap.keys() if t in all_tensors_name]
+        value_info = [self.vimap[t] for t in self.vimap.keys() if t in all_tensors_name]
+        assert(len(self.graph.sparse_initializer) == 0)
+        assert(len(self.graph.quantization_annotation) == 0)
+        return (initializer, value_info)
+
+    def _make_model(
+            self,
+            nodes,  # type: List[NodeProto]
+            inputs,  # type: List[ValueInfoProto]
+            outputs,  # type: List[ValueInfoProto]
+            initializer,  # type: List[TensorProto]
+            value_info  # type: List[ValueInfoProto]
+    ):  # type: (...) -> ModelProto
+        name = 'Extracted from {' + self.graph.name + '}'
+        graph = onnx.helper.make_graph(nodes, name, inputs, outputs, initializer=initializer,
+                                      value_info=value_info)
+
+        meta = {
+            'ir_version': self.model.ir_version,
+            'opset_imports': self.model.opset_import,
+            'producer_name': 'onnx.utils.extract_model',
+        }
+        return onnx.helper.make_model(graph, **meta)
+
+    def extract_model(
+            self,
+            input_names,  # type: List[Text]
+            output_names,  # type: List[Text]
+    ):  # type: (...) -> ModelProto
+        inputs = self._collect_new_inputs(input_names)
+        outputs = self._collect_new_outputs(output_names)
+        nodes = self._collect_reachable_nodes(input_names, output_names)
+        initializer, value_info = self._collect_reachable_tensors(nodes)
+        model = self._make_model(nodes, inputs, outputs, initializer, value_info)
+
+        return model
+
+input_path = './models/bert-base/bert-base-cased.onnx'
+output_path = './models_out/bert_out.onnx'
+input_names = ['235', 'attention_mask']
+output_names = ['351']
+onnx.checker.check_model(input_path)
+model = onnx.load(input_path)
+
+e = Extractor(model)
+extracted = e.extract_model(input_names, output_names)
+
+onnx.save(extracted, output_path)

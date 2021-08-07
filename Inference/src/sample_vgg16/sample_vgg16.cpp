@@ -568,6 +568,10 @@ int main(int argc, char** argv)
     //std::string config_path = "profiler_config.json";
     std::cout << config_path << std::endl;
     FILE* config_fp = fopen(config_path.c_str(), "r");
+    if(!config_fp){
+        std::cout<<"faile to open config.json"<<endl;
+        return -1;
+    }
     char read_buffer[65536];
 
     rapidjson::FileReadStream config_fs(
