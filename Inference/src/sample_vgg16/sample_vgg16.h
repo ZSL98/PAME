@@ -7,6 +7,7 @@
 #include "NvCaffeParser.h"
 #include "NvInfer.h"
 #include <cuda_runtime_api.h>
+#include <cuda_profiler_api.h>
 
 #include "rapidjson/document.h"
 #include "rapidjson/filereadstream.h"

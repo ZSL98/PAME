@@ -153,7 +153,7 @@ bool Profiler::constructSubNet(
 {
     auto profile = builder->createOptimizationProfile();
     samplesCommon::OnnxSampleParams params;
-    params.dataDirs.emplace_back("src/sample_vgg16/vgg_model/cifar10/onnx_main_arc3");
+    params.dataDirs.emplace_back("/home/slzhang/projects/ETBA/Inference/src/sample_vgg16/vgg_model/cifar10/onnx_main_arc3");
     //data_dir.push_back("samples/VGG16/");
     auto parsed = parser->parseFromFile(locateFile("main_arch_"+to_string(model_index)+".onnx", params.dataDirs).c_str(),
     static_cast<int>(sample::gLogger.getReportableSeverity()));
@@ -195,7 +195,7 @@ bool Profiler::constructeeNet(
 {
     auto profile = builder->createOptimizationProfile();
     samplesCommon::OnnxSampleParams params;
-    params.dataDirs.emplace_back("src/sample_vgg16/vgg_model/cifar10/onnx_IC3");
+    params.dataDirs.emplace_back("/home/slzhang/projects/ETBA/Inference/src/sample_vgg16/vgg_model/cifar10/onnx_IC3");
     //data_dir.push_back("samples/VGG16/");
     auto parsed = parser->parseFromFile(locateFile("IC_"+to_string(model_index)+".onnx", params.dataDirs).c_str(),
     static_cast<int>(sample::gLogger.getReportableSeverity()));
@@ -230,6 +230,7 @@ bool Profiler::constructeeNet(
 
 bool Profiler::infer(const size_t& num_test, const size_t& batch_size, const int batch_idx, const int copy_method)
 {
+    cudaProfilerStart();
     // Read the input data into the managed stage1 buffers
     // assert(mParams.inputTensorNames.size() == 1);
     size_t sub_model_cnt = profiler_config_.getSegNum();
@@ -416,6 +417,7 @@ bool Profiler::infer(const size_t& num_test, const size_t& batch_size, const int
     CUDACHECK(cudaEventElapsedTime(&total_elapsed_time, ms_stop_[0], stop_));
     std::cout << "Total elapsed time: " << total_elapsed_time << std::endl;
 
+    cudaProfilerStop();
     return true;
 }
 
@@ -564,12 +566,12 @@ int main(int argc, char** argv)
     //std::string config_path = argv[1];
     torch::Tensor tensor = torch::rand({2, 3});
     std::cout << tensor << std::endl;
-    std::string config_path = "../profiler_config.json";
-    //std::string config_path = "profiler_config.json";
+    //std::string config_path = "../profiler_config.json";
+    std::string config_path = "/home/slzhang/projects/ETBA/Inference/src/sample_vgg16/profiler_config.json";
     std::cout << config_path << std::endl;
     FILE* config_fp = fopen(config_path.c_str(), "r");
     if(!config_fp){
-        std::cout<<"faile to open config.json"<<endl;
+        std::cout<<"failed to open config.json"<<endl;
         return -1;
     }
     char read_buffer[65536];
@@ -577,15 +579,16 @@ int main(int argc, char** argv)
     rapidjson::FileReadStream config_fs(
         config_fp, read_buffer, sizeof(read_buffer));
     rapidjson::Document config_doc;
-
+    std::cout << "Here1." << std::endl;
     config_doc.ParseStream(config_fs);
     ProfilerConfig profiler_config = getInstConfig(config_doc);
-
+    std::cout << "Here2." << std::endl;
     Profiler inst = Profiler(
         profiler_config, config_doc["min_bs"].GetUint(),
         config_doc["opt_bs"].GetUint(), config_doc["max_bs"].GetUint(), config_doc["bs_num"].GetUint(),
         nvinfer1::ILogger::Severity::kINFO);
-
+    std::cout << "Here3." << std::endl;
+    
     inst.build();
     for (int batch_idx = 0; batch_idx < inst.batch_num_; batch_idx++) {
         inst.infer(config_doc["test_iter"].GetUint(), config_doc["cur_bs"].GetUint(), batch_idx, config_doc["copy_method"].GetUint());
