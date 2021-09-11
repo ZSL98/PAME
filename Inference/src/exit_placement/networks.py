@@ -383,7 +383,7 @@ class resnet_s1(nn.Module):
             if self.pre_layer[layer_idx] == 0:
                 layers.append(block(self.inplanes, planes, stride, downsample, self.groups,
                             self.base_width, previous_dilation, norm_layer))
-            for _ in range(1, blocks):
+            for _ in range(0, blocks):
                 layers.append(block(self.inplanes, planes, groups=self.groups,
                                     base_width=self.base_width, dilation=self.dilation,
                                     norm_layer=norm_layer))           
@@ -424,8 +424,10 @@ class resnet_s1(nn.Module):
 class resnet_s2(nn.Module):
     def __init__(
         self,
-        block: Type[Union[BasicBlock, Bottleneck]],
-        layers: List[int] = [2, 4, 23, 3],
+        block: Type[Union[BasicBlock, Bottleneck]] = Bottleneck,
+        layers: List[int] = [3, 4, 23, 3],
+        start_point: int = 1,
+        end_point: int = 1,
         num_classes: int = 1000,
         zero_init_residual: bool = False,
         groups: int = 1,
@@ -454,13 +456,16 @@ class resnet_s2(nn.Module):
         self.bn1 = norm_layer(self.inplanes)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.layer1 = self._make_layer(block, 64, layers[0])
-        self.layer2 = self._make_layer(block, 128, layers[1], stride=2,
-                                       dilate=replace_stride_with_dilation[0])
-        self.layer3 = self._make_layer(block, 256, layers[2], stride=2,
-                                       dilate=replace_stride_with_dilation[1])
-        self.layer4 = self._make_layer(block, 512, layers[3], stride=2,
-                                       dilate=replace_stride_with_dilation[2])
+
+        _pre_layer, _post_layer, self.s2_layer = model_split(layers, start_point, end_point)
+        self.s1_layer = [i+j for i, j in zip(_pre_layer, _post_layer)]
+        self.layer1 = self._make_layer(block, 64, self.s2_layer[0], layer_idx=0)
+        self.layer2 = self._make_layer(block, 128, self.s2_layer[1], stride=2,
+                                       dilate=replace_stride_with_dilation[0], layer_idx=1)
+        self.layer3 = self._make_layer(block, 256, self.s2_layer[2], stride=2,
+                                       dilate=replace_stride_with_dilation[1], layer_idx=2)
+        self.layer4 = self._make_layer(block, 512, self.s2_layer[3], stride=2,
+                                       dilate=replace_stride_with_dilation[2], layer_idx=3)
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.fc = nn.Linear(512 * block.expansion, num_classes)
 
@@ -482,7 +487,10 @@ class resnet_s2(nn.Module):
                     nn.init.constant_(m.bn2.weight, 0)  # type: ignore[arg-type]
 
     def _make_layer(self, block: Type[Union[BasicBlock, Bottleneck]], planes: int, blocks: int,
-                    stride: int = 1, dilate: bool = False) -> nn.Sequential:
+                    stride: int = 1, dilate: bool = False, layer_idx: int = 0) -> nn.Sequential:
+        if blocks == 0:
+            layers = []
+            return nn.Sequential(*layers)
         norm_layer = self._norm_layer
         downsample = None
         previous_dilation = self.dilation
@@ -496,8 +504,9 @@ class resnet_s2(nn.Module):
             )
 
         layers = []
-        layers.append(block(self.inplanes, planes, stride, downsample, self.groups,
-                            self.base_width, previous_dilation, norm_layer))
+        if self.s1_layer[layer_idx] == 0:
+            layers.append(block(self.inplanes, planes, stride, downsample, self.groups,
+                                self.base_width, previous_dilation, norm_layer))
         self.inplanes = planes * block.expansion
         for _ in range(1, blocks):
             layers.append(block(self.inplanes, planes, groups=self.groups,

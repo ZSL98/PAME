@@ -22,16 +22,26 @@ class construct_net(object):
         if self.backbone == 'resnet':
             return resnet_s2(self.start_point, self.end_point)
 
+def model_export(start_point, end_point):
+    inst = construct_net(start_point=start_point, end_point=end_point)
+    dummy_input1 = torch.randn(1, 3, 224, 224)
+    s1_model = inst.construct_net_s1()
+    dummy_input2 = s1_model(dummy_input1)
+    s2_model = inst.construct_net_s2()
 
-if __name__ == '__main__':
-    inst = construct_net()
-    inst.start_point = 
-
-
-input_names = ["input"]
-output_names = ["output"]
-torch.onnx.export(model, dummy_input, "resnet101.onnx",input_names=input_names, output_names=output_names,
-                  verbose=True,dynamic_axes={
+    input_names = ["input"]
+    s1_output_names = ["output1", "exit_output"]
+    torch.onnx.export(s1_model, dummy_input1, "resnet_s1.onnx",input_names=input_names, output_names=s1_output_names,
+                        verbose=True,dynamic_axes={
                                       'input': {0: 'batch_size'},
-                                      'output': {0: 'batch_size'},
+                                      'output1': {0: 'batch_size'},
+                                      'exit_output': {0: 'batch_size'},
                                   },opset_version=11)
+
+    s2_output_names = ["final_output"]
+    torch.onnx.export(s2_model, dummy_input2, "resnet_s2.onnx",input_names=input_names, output_names=s2_output_names,
+                        verbose=True,dynamic_axes={
+                                      'input': {0: 'batch_size'},
+                                      'final_output': {0: 'batch_size'},
+                                  },opset_version=11)
+
