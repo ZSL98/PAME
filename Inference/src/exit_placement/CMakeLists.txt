@@ -82,12 +82,18 @@ target_link_libraries(sample
 )
 
 # find_package(Torch REQUIRED)
-find_package(Torch REQUIRED PATHS /home/slzhang/mytool/pytorch/torch)
-message(STATUS ${TORCH_LIBRARIES})
+# find_package(Torch REQUIRED PATHS /home/slzhang/mytool/pytorch/torch)
+
+set(Python3_EXECUTABLE /home/slzhang/miniconda/envs/fedml/bin/python)
+set(Python3_INCLUDE_DIR /home/slzhang/miniconda/envs/fedml/include/python3.7m)
+set(Python3_LIBRARY /home/slzhang/miniconda/envs/fedml/lib/libpython3.7m.so)
+# find_package(Python3 REQUIRED COMPONENTS Interpreter Development)
+# message(STATUS ${TORCH_LIBRARIES})
 # message(STATUS ${TORCH_INCLUDE_DIRS})
 # include_directories(${TORCH_INCLUDE_DIRS})
-target_link_libraries(sample ${TORCH_LIBRARIES})
-
+# target_link_libraries(sample ${TORCH_LIBRARIES})
+target_link_libraries(sample ${Python3_LIBRARY})
+target_include_directories(sample PRIVATE ${Python3_INCLUDE_DIR})
 set_target_properties(sample PROPERTIES LINK_FLAGS "-Wl,--exclude-libs,ALL")
 # set_target_properties(sample PROPERTIES DEBUG_POSTFIX ${TRT_DEBUG_POSTFIX})
 

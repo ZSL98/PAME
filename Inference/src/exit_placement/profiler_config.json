@@ -12,9 +12,10 @@
     "bs_s1": 64,
     "bs_s2": 64,
     "log_lvl": "INFO",
-    "bs_num": 1,
+    "bs_num": 100,
     "test_iter": 1,
-    "copy_method": 0,
+    "copy_method": 1,
+    "seperate_or_not": false,
     "fp16": false
   }
   

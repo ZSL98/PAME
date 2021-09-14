@@ -368,7 +368,7 @@ public:
                 size_t vol = singleVol * next_batch_size;
                 std::shared_ptr<ManagedBuffer> new_manBuf{new ManagedBuffer(vol, type)};
                 dims.d[0] = next_batch_size;
-                std::cout << "Two sources. Input size: " << dims << std::endl;
+                // std::cout << "Two sources. Input size: " << dims << std::endl;
 
                 float* dstPtr_ = static_cast<float*>(new_manBuf->deviceBuffer.data());
                 float* srcPtr_ = static_cast<float*>(manBuf_ptr->deviceBuffer.data());
@@ -403,7 +403,7 @@ public:
                 // One source from the last sub module.
                 auto dims = mEngine->getBindingDimensions(i);
                 dims.d[0] = batchSize;
-                std::cout << "One source. Input size: " << dims << std::endl;
+                // std::cout << "One source. Input size: " << dims << std::endl;
                 std::shared_ptr<ManagedBuffer> manBuf_ptr = srcPtr;
                 mManagedBuffers.emplace_back(std::move(manBuf_ptr));
                 mDeviceBindings.emplace_back(mManagedBuffers.back()->deviceBuffer.data());
@@ -412,7 +412,7 @@ public:
             else if (i == 0) {
                 auto dims = mEngine->getBindingDimensions(i);
                 dims.d[0] = batchSize;
-                std::cout << "No source. Input size: " << dims << std::endl;
+                // std::cout << "No source. Input size: " << dims << std::endl;
             }
 
             auto dims = context ? context->getBindingDimensions(i) : mEngine->getBindingDimensions(i);
@@ -442,8 +442,8 @@ public:
             if (i != 0) {
                 auto dims = mEngine->getBindingDimensions(i);
                 dims.d[0] = -1;
-                std::cout << "Output size: " << dims << std::endl;
-                std::cout << "\n" << std::endl;
+                // std::cout << "Output size: " << dims << std::endl;
+                // std::cout << "\n" << std::endl;
             }
         }
     }
@@ -473,6 +473,11 @@ public:
     std::shared_ptr<ManagedBuffer> getOutputBuffer()
     {
         return mManagedBuffers[1];
+    }
+
+    std::shared_ptr<ManagedBuffer> getImmediateBuffer(const int idx)
+    {
+        return mManagedBuffers[idx];
     }
 
     //!

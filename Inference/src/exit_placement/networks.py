@@ -285,6 +285,9 @@ class resnet_s1(nn.Module):
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
 
         self.pre_layer, self.post_layer, _ = model_split(layers, start_point, end_point)
+        print(self.pre_layer)
+        print(self.post_layer)
+        print(_)
         self.pre_layer1 = self._make_layer(block, 64, self.pre_layer[0])
         self.pre_layer2 = self._make_layer(block, 128, self.pre_layer[1], stride=2,
                                        dilate=replace_stride_with_dilation[0])
@@ -365,6 +368,8 @@ class resnet_s1(nn.Module):
             self.dilation *= stride
             stride = 1
         if stride != 1 or self.inplanes != planes * block.expansion:
+            print("ss: "+str(self.inplanes))
+            print("ssp: "+str(planes))
             downsample = nn.Sequential(
                 conv1x1(self.inplanes, planes * block.expansion, stride),
                 norm_layer(planes * block.expansion),
@@ -372,6 +377,7 @@ class resnet_s1(nn.Module):
 
         layers = []
         if pre_or_not:
+            print("s1: "+str(self.inplanes))
             layers.append(block(self.inplanes, planes, stride, downsample, self.groups,
                             self.base_width, previous_dilation, norm_layer))
             self.inplanes = planes * block.expansion
@@ -380,9 +386,17 @@ class resnet_s1(nn.Module):
                                     base_width=self.base_width, dilation=self.dilation,
                                     norm_layer=norm_layer))
         else:
+            print("s2: "+str(self.inplanes))
             if self.pre_layer[layer_idx] == 0:
+                blocks = blocks - 1
+                self.inplanes = planes * 2
+                downsample = nn.Sequential(
+                    conv1x1(self.inplanes, planes * block.expansion, stride),
+                    norm_layer(planes * block.expansion),
+                )
                 layers.append(block(self.inplanes, planes, stride, downsample, self.groups,
                             self.base_width, previous_dilation, norm_layer))
+            self.inplanes = planes * block.expansion
             for _ in range(0, blocks):
                 layers.append(block(self.inplanes, planes, groups=self.groups,
                                     base_width=self.base_width, dilation=self.dilation,
@@ -504,6 +518,7 @@ class resnet_s2(nn.Module):
             )
 
         layers = []
+        print("s0: "+str(self.inplanes))
         if self.s1_layer[layer_idx] == 0:
             layers.append(block(self.inplanes, planes, stride, downsample, self.groups,
                                 self.base_width, previous_dilation, norm_layer))
