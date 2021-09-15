@@ -36,18 +36,22 @@ def model_export_func(start_point, end_point):
 
     input_names = ["input"]
     s1_output_names = ["output1", "exit_output"]
-    torch.onnx.export(s1_model, dummy_input1, "resnet_s1.onnx",input_names=input_names, output_names=s1_output_names,
+    torch.onnx.export(s1_model, dummy_input1, 
+                        "/home/slzhang/projects/ETBA/Inference/src/exit_placement/models/resnet_s1.onnx",
+                        input_names=input_names, output_names=s1_output_names,
                         verbose=False,dynamic_axes={
                                       'input': {0: 'batch_size'},
                                       'output1': {0: 'batch_size'},
                                       'exit_output': {0: 'batch_size'},
                                   },opset_version=11)
     s2_output_names = ["final_output"]
-    torch.onnx.export(s2_model, dummy_input2[0], "resnet_s2.onnx",input_names=input_names, output_names=s2_output_names,
+    torch.onnx.export(s2_model, dummy_input2[0], 
+                        "/home/slzhang/projects/ETBA/Inference/src/exit_placement/models/resnet_s2.onnx",
+                        input_names=input_names, output_names=s2_output_names,
                         verbose=False,dynamic_axes={
                                       'input': {0: 'batch_size'},
                                       'final_output': {0: 'batch_size'},
                                   },opset_version=11)
 
 if __name__ == '__main__':
-    model_export_func(5, 8)
+    model_export_func(7, 9)

@@ -54,6 +54,7 @@ bool Profiler::build_s0()
     }
 
     mContext_s0 = std::shared_ptr<nvinfer1::IExecutionContext>(mEngine_s0->createExecutionContext(), samplesCommon::InferDeleter());
+    return true;
 }
 
 bool Profiler::build_s1()
@@ -93,6 +94,7 @@ bool Profiler::build_s1()
     }
 
     mContext_s1 = std::shared_ptr<nvinfer1::IExecutionContext>(mEngine_s1->createExecutionContext(), samplesCommon::InferDeleter());
+    return true;
 }
 
 bool Profiler::build_s2()
@@ -134,6 +136,7 @@ bool Profiler::build_s2()
     }
 
     mContext_s2 = std::shared_ptr<nvinfer1::IExecutionContext>(mEngine_s2->createExecutionContext(), samplesCommon::InferDeleter());
+    return true;
 }
 
 bool Profiler::construct_s0(
@@ -144,7 +147,7 @@ bool Profiler::construct_s0(
 {
     auto profile = builder->createOptimizationProfile();
     samplesCommon::OnnxSampleParams params;
-    params.dataDirs.emplace_back("/home/slzhang/projects/ETBA/Inference/src/exit_placement");
+    params.dataDirs.emplace_back("/home/slzhang/projects/ETBA/Inference/src/exit_placement/models");
     //data_dir.push_back("samples/VGG16/");
     auto parsed = parser->parseFromFile(locateFile("resnet101.onnx", params.dataDirs).c_str(),
     static_cast<int>(sample::gLogger.getReportableSeverity()));
@@ -179,7 +182,7 @@ bool Profiler::construct_s1(
 {
     auto profile = builder->createOptimizationProfile();
     samplesCommon::OnnxSampleParams params;
-    params.dataDirs.emplace_back("/home/slzhang/projects/ETBA/Inference/src/exit_placement");
+    params.dataDirs.emplace_back("/home/slzhang/projects/ETBA/Inference/src/exit_placement/models");
     //data_dir.push_back("samples/VGG16/");
     auto parsed = parser->parseFromFile(locateFile("resnet_s1.onnx", params.dataDirs).c_str(),
     static_cast<int>(sample::gLogger.getReportableSeverity()));
@@ -214,7 +217,7 @@ bool Profiler::construct_s2(
 {
     auto profile = builder->createOptimizationProfile();
     samplesCommon::OnnxSampleParams params;
-    params.dataDirs.emplace_back("/home/slzhang/projects/ETBA/Inference/src/exit_placement");
+    params.dataDirs.emplace_back("/home/slzhang/projects/ETBA/Inference/src/exit_placement/models");
     //data_dir.push_back("samples/VGG16/");
     auto parsed = parser->parseFromFile(locateFile("resnet_s2.onnx", params.dataDirs).c_str(),
     static_cast<int>(sample::gLogger.getReportableSeverity()));
@@ -223,6 +226,7 @@ bool Profiler::construct_s2(
     }
 
     input_dims_s2 = network->getInput(0)->getDimensions();
+    // std::cout << "Channel num: " << input_dims_s2.d[1] << std::endl;
     input_tensor_names_ = network->getInput(0)->getName();
 
     nvinfer1::Dims min_dims = input_dims_s2;
@@ -310,7 +314,6 @@ float Profiler::infer(const bool separate_or_not, const size_t& num_test, const 
 
 bool model_generation(const int start_point, const int end_point)
 {
-    Py_Initialize();
     PyRun_SimpleString("import sys");
     PyRun_SimpleString("sys.path.append('/home/slzhang/projects/ETBA/Inference/src/exit_placement')");
 	PyObject* pModule = PyImport_ImportModule("model_export");
@@ -327,7 +330,6 @@ bool model_generation(const int start_point, const int end_point)
     PyObject* pRet = PyObject_CallObject(pFunc, args);
     Py_DECREF(args);
     Py_DECREF(pRet);
-    Py_Finalize();
     return true;
 }
 
@@ -345,23 +347,25 @@ int main(int argc, char** argv)
         config_fp, read_buffer, sizeof(read_buffer));
     rapidjson::Document config_doc;
     config_doc.ParseStream(config_fs);
-    Profiler inst = Profiler(
-        config_doc["bs_s1"].GetUint(),
-        config_doc["bs_s2"].GetUint(), 
-        config_doc["bs_num"].GetUint(),
-        nvinfer1::ILogger::Severity::kINFO);
 
+    std::ofstream outFile;
+    Py_Initialize();
     for (int start_point = 1; start_point < 33; start_point++)
     {
+        int end_point = start_point + 2;
+        bool model_generated = model_generation(start_point, end_point);
+        if(!model_generated){
+            std::cout<<"failed to export models"<<endl;
+            return -1;
+        }
+        std::vector<float> avg_elapsed_time;
         for (int batch_scale = 1; batch_scale < 5; batch_scale++)
         {
-            bool model_generated = model_generation(start_point, start_point+2);
-            if(!model_generated){
-                std::cout<<"failed to export models"<<endl;
-                return -1;
-            }
-
-            inst.batch_size_s2_ = inst.batch_size_s1_ * batch_scale / 4;
+            size_t batch_size_s1 = config_doc["bs_s1"].GetUint();
+            size_t batch_size_s2 = config_doc["bs_s2"].GetUint() * batch_scale / 4;
+            Profiler inst = Profiler(batch_size_s1, batch_size_s2, 
+                                    config_doc["bs_num"].GetUint(),
+                                    nvinfer1::ILogger::Severity::kERROR);
             if (config_doc["seperate_or_not"].GetBool()){
                 inst.build_s1();
                 inst.build_s2();
@@ -369,7 +373,6 @@ int main(int argc, char** argv)
             else {
                 inst.build_s0();
             }
-
             float total_elapsed_time = 0;
             for (int batch_idx = 0; batch_idx < inst.batch_num_; batch_idx++) 
             {
@@ -378,30 +381,20 @@ int main(int argc, char** argv)
                                             config_doc["copy_method"].GetUint());
                 total_elapsed_time += elapsed_time;
             }
-            float avg_elapsed_time = total_elapsed_time/inst.batch_num_;
-            std::cout << "Average elapsed time of the full model: " << avg_elapsed_time << std::endl;
+            avg_elapsed_time.push_back(total_elapsed_time/inst.batch_num_);
+            std::cout << "Average elapsed time: " << avg_elapsed_time.back() 
+                        << " (" + to_string(config_doc["bs_s1"].GetUint()) + " -> " + to_string(batch_size_s2) + ")"
+                        << std::endl;
         }
+        outFile.open("/home/slzhang/projects/ETBA/Inference/src/exit_placement/config_" + 
+                        to_string(config_doc["bs_s1"].GetUint()) + ".csv", ios::app);
+        outFile << start_point << ',';
+        for (int i = 0; i < avg_elapsed_time.size() - 1; ++i){
+            outFile << avg_elapsed_time.at(i) << ',';
+        }
+        outFile << avg_elapsed_time.back() << endl;
+        outFile.close();
     }
-    
-
-    if (config_doc["seperate_or_not"].GetBool()){
-        inst.build_s1();
-        inst.build_s2();
-    }
-    else {
-        inst.build_s0();
-    }
-
-    float total_elapsed_time = 0;
-    for (int batch_idx = 0; batch_idx < inst.batch_num_; batch_idx++) 
-    {
-        float elapsed_time = inst.infer(config_doc["seperate_or_not"].GetBool(),
-                                    config_doc["test_iter"].GetUint(), batch_idx, 
-                                    config_doc["copy_method"].GetUint());
-        total_elapsed_time += elapsed_time;
-    }
-    float avg_elapsed_time = total_elapsed_time/inst.batch_num_;
-    std::cout << "Average elapsed time of the full model: " << avg_elapsed_time << std::endl;
-
+    Py_Finalize();
     return 0;
 }

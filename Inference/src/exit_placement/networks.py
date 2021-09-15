@@ -368,8 +368,6 @@ class resnet_s1(nn.Module):
             self.dilation *= stride
             stride = 1
         if stride != 1 or self.inplanes != planes * block.expansion:
-            print("ss: "+str(self.inplanes))
-            print("ssp: "+str(planes))
             downsample = nn.Sequential(
                 conv1x1(self.inplanes, planes * block.expansion, stride),
                 norm_layer(planes * block.expansion),
@@ -377,7 +375,6 @@ class resnet_s1(nn.Module):
 
         layers = []
         if pre_or_not:
-            print("s1: "+str(self.inplanes))
             layers.append(block(self.inplanes, planes, stride, downsample, self.groups,
                             self.base_width, previous_dilation, norm_layer))
             self.inplanes = planes * block.expansion
@@ -386,7 +383,6 @@ class resnet_s1(nn.Module):
                                     base_width=self.base_width, dilation=self.dilation,
                                     norm_layer=norm_layer))
         else:
-            print("s2: "+str(self.inplanes))
             if self.pre_layer[layer_idx] == 0:
                 blocks = blocks - 1
                 self.inplanes = planes * 2
@@ -518,12 +514,17 @@ class resnet_s2(nn.Module):
             )
 
         layers = []
-        print("s0: "+str(self.inplanes))
         if self.s1_layer[layer_idx] == 0:
+            blocks = blocks - 1
+            self.inplanes = planes * 2
+            downsample = nn.Sequential(
+                conv1x1(self.inplanes, planes * block.expansion, stride),
+                norm_layer(planes * block.expansion),
+            )
             layers.append(block(self.inplanes, planes, stride, downsample, self.groups,
                                 self.base_width, previous_dilation, norm_layer))
         self.inplanes = planes * block.expansion
-        for _ in range(1, blocks):
+        for _ in range(0, blocks):
             layers.append(block(self.inplanes, planes, groups=self.groups,
                                 base_width=self.base_width, dilation=self.dilation,
                                 norm_layer=norm_layer))
