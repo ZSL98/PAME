@@ -258,6 +258,7 @@ class resnet_s1(nn.Module):
         zero_init_residual: bool = False,
         groups: int = 1,
         width_per_group: int = 64,
+        simple_exit: bool = True,
         replace_stride_with_dilation: Optional[List[bool]] = None,
         norm_layer: Optional[Callable[..., nn.Module]] = None
     ) -> None:
@@ -311,19 +312,32 @@ class resnet_s1(nn.Module):
         self.fc = nn.Linear(512 * block.expansion, num_classes)
         # self.conv1x1_exit = conv1x1(256, 512)
         # self.bottleblock = Bottleneck(256, 64)
-        
-        if self.pre_layer[1] == 0:
-            self.exit = self._make_complex_exit(64)
-            self.fc_exit = nn.Linear(64 * Bottleneck.expansion, num_classes)
-        elif self.pre_layer[2] == 0:
-            self.exit = self._make_complex_exit(128)
-            self.fc_exit = nn.Linear(128 * Bottleneck.expansion, num_classes)
-        elif self.pre_layer[3] == 0:
-            self.exit = self._make_complex_exit(256)
-            self.fc_exit = nn.Linear(256 * Bottleneck.expansion, num_classes)
+
+
+        if simple_exit:
+            if self.pre_layer[1] == 0:
+                self.exit = self._make_simple_exit(64)
+                self.fc_exit = nn.Linear(64 * Bottleneck.expansion, num_classes)
+            elif self.pre_layer[2] == 0:
+                self.exit = self._make_simple_exit(128)
+                self.fc_exit = nn.Linear(128 * Bottleneck.expansion, num_classes)
+            elif self.pre_layer[3] == 0:
+                self.exit = self._make_simple_exit(256)
+                self.fc_exit = nn.Linear(256 * Bottleneck.expansion, num_classes)
+            else:
+                self.exit = self._make_simple_exit(512)
+                self.fc_exit = nn.Linear(512 * Bottleneck.expansion, num_classes)
         else:
-            self.exit = self._make_complex_exit(512)
+            if self.pre_layer[1] == 0:
+                self.exit = self._make_complex_exit(1)
+            elif self.pre_layer[2] == 0:
+                self.exit = self._make_complex_exit(2)
+            elif self.pre_layer[3] == 0:
+                self.exit = self._make_complex_exit(3)
+            else:
+                self.exit = self._make_complex_exit(4)
             self.fc_exit = nn.Linear(512 * Bottleneck.expansion, num_classes)
+
 
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -342,10 +356,46 @@ class resnet_s1(nn.Module):
                 elif isinstance(m, BasicBlock):
                     nn.init.constant_(m.bn2.weight, 0)  # type: ignore[arg-type]
 
-    def _make_simple_exit(self) -> nn.Sequential:
+    def _make_complex_exit(self, layer: int, stride: int = 1) -> nn.Sequential:
         layers = []
+        norm_layer = self._norm_layer
+        previous_dilation = self.dilation
+        if layer < 1:
+            downsample_1 = nn.Sequential(
+                conv1x1(64, 256, stride),
+                norm_layer(256),
+            )
+            layers.append(Bottleneck(128, 64, stride, downsample_1, self.groups,
+                        self.base_width, previous_dilation, norm_layer))
 
-    def _make_complex_exit(self, planes: int) -> nn.Sequential:
+        if layer < 2:
+            downsample_2 = nn.Sequential(
+                conv1x1(256, 512, stride),
+                norm_layer(512),
+            )
+            layers.append(Bottleneck(256, 128, stride, downsample_2, self.groups,
+                        self.base_width, previous_dilation, norm_layer))
+
+        if layer < 3:
+            downsample_3 = nn.Sequential(
+                conv1x1(512, 1024, stride),
+                norm_layer(1024),
+            )
+            layers.append(Bottleneck(512, 256, stride, downsample_3, self.groups,
+                        self.base_width, previous_dilation, norm_layer))
+
+        if layer < 4:
+            downsample_4 = nn.Sequential(
+                conv1x1(1024, 2048, stride),
+                norm_layer(2048),
+            )
+            layers.append(Bottleneck(1024, 512, stride, downsample_4, self.groups,
+                        self.base_width, previous_dilation, norm_layer))
+
+        return nn.Sequential(*layers)
+
+
+    def _make_simple_exit(self, planes: int) -> nn.Sequential:
         layers = []
         norm_layer = self._norm_layer
         self.inplanes = planes * Bottleneck.expansion

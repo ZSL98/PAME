@@ -206,6 +206,10 @@ bool Profiler::construct_s1(
 
     config->addOptimizationProfile(profile);
     config->setMaxWorkspaceSize(3_GiB);
+    // config->setMinTimingIterations(2);
+    // config->setAvgTimingIterations(1);
+    // std::cout << "getMinTimingIterations: " << config->getMinTimingIterations() << std::endl;
+    // std::cout << "getAvgTimingIterations: " << config->getAvgTimingIterations() << std::endl;
     return true;
 }
 
@@ -240,14 +244,20 @@ bool Profiler::construct_s2(
     profile->setDimensions(input_tensor_names_.c_str(), nvinfer1::OptProfileSelector::kOPT, opt_dims);
     profile->setDimensions(input_tensor_names_.c_str(), nvinfer1::OptProfileSelector::kMAX, max_dims);
 
+    // config->setMinTimingIterations(2);
+    // config->setAvgTimingIterations(1);
     config->addOptimizationProfile(profile);
     config->setMaxWorkspaceSize(3_GiB);
     return true;
 }
 
-float Profiler::infer(const bool separate_or_not, const size_t& num_test, const int batch_idx, const int copy_method)
+std::vector<float> Profiler::infer(const bool separate_or_not, const size_t& num_test,
+                 const int batch_idx, const int copy_method, const bool overload)
 {
     float elapsed_time = 0;
+    float elapsed_time_s1 = 0;
+    float elapsed_time_s2 = 0;
+    std::vector<float> metrics;
     if (separate_or_not) {
         CUDACHECK(cudaDeviceSynchronize());
         CUDACHECK(cudaEventRecord(infer_start, stream_));
@@ -258,9 +268,9 @@ float Profiler::infer(const bool separate_or_not, const size_t& num_test, const 
         auto status_s1 = mContext_s1->enqueueV2(buffer_s1.getDeviceBindings().data(), stream_, nullptr);
         if (!status_s1) {
             std::cout << "Error when inferring S1 model" << std::endl;
-            return false;
         }
         CUDACHECK(cudaEventRecord(s1_end, stream_));
+        CUDACHECK(cudaEventSynchronize(s1_end));
 
         std::vector<int> full_copy_list;
         for(int i = 0; i < batch_size_s1_; ++i)
@@ -269,12 +279,17 @@ float Profiler::infer(const bool separate_or_not, const size_t& num_test, const 
         }
         random_shuffle(full_copy_list.begin(), full_copy_list.end());
         std::vector<int> copy_list;
-        for(int i = 0; i < batch_size_s2_; ++i)
-        {
+
+        int next_batch_size = batch_size_s2_;
+        if (overload) {
+            next_batch_size = batch_size_s1_;
+        }
+
+        for(int i = 0; i < next_batch_size ; ++i){
             copy_list.push_back(full_copy_list[i]);
         }
 
-        input_dims_s2.d[0] = batch_size_s2_;
+        input_dims_s2.d[0] = next_batch_size;
         mContext_s2->setBindingDimensions(0, input_dims_s2);
         std::shared_ptr<samplesCommon::ManagedBuffer> srcPtr = buffer_s1.getImmediateBuffer(2);
         samplesCommon::BufferManager buffer_s2(mEngine_s2, batch_size_s1_,
@@ -283,13 +298,16 @@ float Profiler::infer(const bool separate_or_not, const size_t& num_test, const 
         auto status_s2 = mContext_s2->enqueueV2(buffer_s2.getDeviceBindings().data(), stream_, nullptr);
         if (!status_s2) {
             std::cout << "Error when inferring S2 model" << std::endl;
-            return false;
         }
         CUDACHECK(cudaEventRecord(s2_end, stream_));
         CUDACHECK(cudaEventSynchronize(s2_end));
     
+        CUDACHECK(cudaEventElapsedTime(&elapsed_time_s1, infer_start, s1_end));
+        CUDACHECK(cudaEventElapsedTime(&elapsed_time_s2, s1_end, s2_end));
         CUDACHECK(cudaEventElapsedTime(&elapsed_time, infer_start, s2_end));
-        // std::cout << "Total elapsed time of separated models: " << elapsed_time << std::endl;
+        metrics.push_back(elapsed_time_s1);
+        metrics.push_back(elapsed_time_s2);
+        metrics.push_back(elapsed_time);
     }
     else {
         CUDACHECK(cudaDeviceSynchronize());
@@ -301,15 +319,14 @@ float Profiler::infer(const bool separate_or_not, const size_t& num_test, const 
         auto status_s0 = mContext_s0->enqueueV2(buffer_s0.getDeviceBindings().data(), stream_, nullptr);
         if (!status_s0) {
             std::cout << "Error when inferring the full model" << std::endl;
-            return false;
         }
         CUDACHECK(cudaEventRecord(s2_end, stream_));
         CUDACHECK(cudaEventSynchronize(s2_end));
     
         CUDACHECK(cudaEventElapsedTime(&elapsed_time, infer_start, s2_end));
-        // std::cout << "Total elapsed time of the full model: " << elapsed_time << std::endl;
+        metrics.push_back(elapsed_time);
     }
-    return elapsed_time;
+    return metrics;
 }
 
 bool model_generation(const int start_point, const int end_point)
@@ -350,50 +367,123 @@ int main(int argc, char** argv)
 
     std::ofstream outFile;
     Py_Initialize();
-    for (int start_point = 1; start_point < 33; start_point++)
-    {
-        int end_point = start_point + 2;
-        bool model_generated = model_generation(start_point, end_point);
-        if(!model_generated){
-            std::cout<<"failed to export models"<<endl;
-            return -1;
-        }
-        std::vector<float> avg_elapsed_time;
-        for (int batch_scale = 1; batch_scale < 5; batch_scale++)
+    int extend_max_block = 5;
+    if (config_doc["seperate_or_not"].GetBool()){
+        for (int start_point = 1; start_point < 33; start_point++)
         {
-            size_t batch_size_s1 = config_doc["bs_s1"].GetUint();
-            size_t batch_size_s2 = config_doc["bs_s2"].GetUint() * batch_scale / 4;
-            Profiler inst = Profiler(batch_size_s1, batch_size_s2, 
-                                    config_doc["bs_num"].GetUint(),
-                                    nvinfer1::ILogger::Severity::kERROR);
-            if (config_doc["seperate_or_not"].GetBool()){
+            // Do the pre test to determine the end point of stage1 network
+            std::vector<float> pre_test_time;
+            for (int post_block_num = 0; post_block_num < extend_max_block; post_block_num++)
+            {
+                int end_point = start_point + post_block_num;
+                bool model_generated = model_generation(start_point, end_point);
+                if(!model_generated){
+                    std::cout<<"failed to export models"<<endl;
+                    return -1;
+                }
+                Profiler pre_inst = Profiler(config_doc["bs_s1"].GetUint(), 
+                                        config_doc["bs_s2"].GetUint(), 
+                                        config_doc["bs_num"].GetUint(),
+                                        nvinfer1::ILogger::Severity::kERROR);
+                pre_inst.build_s1();
+                pre_inst.build_s2();
+                float pre_test_total_time = 0;
+                for (int batch_idx = 0; batch_idx < pre_inst.batch_num_; batch_idx++) 
+                {
+                    std::vector<float> metrics = pre_inst.infer(true, config_doc["test_iter"].GetUint(), batch_idx, 
+                                                    config_doc["copy_method"].GetUint());
+                    pre_test_total_time += metrics[2];
+                }
+                std::cout << "Average elapsed time: " << pre_test_total_time/pre_inst.batch_num_
+                            << " post_block_num: " + to_string(post_block_num)
+                            << std::endl;
+                pre_test_time.push_back(pre_test_total_time/pre_inst.batch_num_);
+            }
+            auto shortest_time = std::min_element(std::begin(pre_test_time), std::end(pre_test_time));
+            int opt_post_block_num = std::distance(std::begin(pre_test_time), shortest_time);
+            int end_point = start_point + opt_post_block_num;
+            std::cout << "Opt end_point for start_point " << start_point << " is " << end_point << std::endl;
+            bool opt_model_generated = model_generation(start_point, end_point);
+            if(!opt_model_generated){
+                std::cout<<"failed to export opt models"<<endl;
+                return -1;
+            }
+            
+            std::vector<float> avg_elapsed_time_s1;
+            std::vector<float> avg_elapsed_time_s2;
+            std::vector<float> avg_elapsed_time;
+            std::vector<float> avg_elapsed_time_overload;
+            int batch_size_s1 = config_doc["bs_s1"].GetUint();
+            int batch_interval = config_doc["b_interval"].GetUint();
+            for (int batch_size_s2 = batch_interval; batch_size_s2 <= batch_size_s1;
+                     batch_size_s2 = batch_size_s2 + batch_interval)
+            {
+                // size_t batch_size_s2 = config_doc["bs_s2"].GetUint() * batch_scale / 4;
+                Profiler inst = Profiler(batch_size_s1, batch_size_s2, 
+                                        config_doc["bs_num"].GetUint(),
+                                        nvinfer1::ILogger::Severity::kERROR);
                 inst.build_s1();
                 inst.build_s2();
+                float total_elapsed_time_s1 = 0;
+                float total_elapsed_time_s2 = 0;
+                float total_elapsed_time = 0;
+                float total_elapsed_time_overload = 0;
+                for (int batch_idx = 0; batch_idx < inst.batch_num_; batch_idx++) 
+                {
+                    std::vector<float> metrics = inst.infer(config_doc["seperate_or_not"].GetBool(),
+                                                config_doc["test_iter"].GetUint(), batch_idx, 
+                                                config_doc["copy_method"].GetUint());
+                    total_elapsed_time_s1 += metrics[0];
+                    total_elapsed_time_s2 += metrics[1];
+                    total_elapsed_time += metrics[2];
+                    std::vector<float> metrics_overload = inst.infer(config_doc["seperate_or_not"].GetBool(),
+                                                config_doc["test_iter"].GetUint(), batch_idx, 
+                                                config_doc["copy_method"].GetUint(), true);
+                    total_elapsed_time_overload += metrics_overload[2];
+                }
+                avg_elapsed_time_s1.push_back(total_elapsed_time_s1/inst.batch_num_);
+                avg_elapsed_time_s2.push_back(total_elapsed_time_s2/inst.batch_num_);
+                avg_elapsed_time.push_back(total_elapsed_time/inst.batch_num_);
+                avg_elapsed_time_overload.push_back(total_elapsed_time_overload/inst.batch_num_);
+                std::cout << "Average elapsed time: " << avg_elapsed_time_s1.back() << " + " 
+                            << avg_elapsed_time_s2.back() << " = " << avg_elapsed_time.back() 
+                            << " < " << avg_elapsed_time_overload.back()
+                            << " (" + to_string(config_doc["bs_s1"].GetUint()) + " -> " + to_string(batch_size_s2) + ")"
+                            << std::endl;
             }
-            else {
-                inst.build_s0();
+            outFile.open("/home/slzhang/projects/ETBA/Inference/src/exit_placement/config_complex_exit_" + 
+                            to_string(config_doc["bs_s1"].GetUint()) + ".csv", ios::app);
+            outFile << start_point << ',' << end_point << ',';
+
+            for (int i = 0; i < avg_elapsed_time.size(); ++i){
+                outFile << avg_elapsed_time_s1.at(i) << ',';
+                outFile << avg_elapsed_time_s2.at(i) << ',';
+                outFile << avg_elapsed_time.at(i) << ',';
+                outFile << avg_elapsed_time_overload.at(i) << ',';
+                if (i == avg_elapsed_time.size() - 1) {outFile << endl;}
             }
-            float total_elapsed_time = 0;
-            for (int batch_idx = 0; batch_idx < inst.batch_num_; batch_idx++) 
-            {
-                float elapsed_time = inst.infer(config_doc["seperate_or_not"].GetBool(),
-                                            config_doc["test_iter"].GetUint(), batch_idx, 
-                                            config_doc["copy_method"].GetUint());
-                total_elapsed_time += elapsed_time;
-            }
-            avg_elapsed_time.push_back(total_elapsed_time/inst.batch_num_);
-            std::cout << "Average elapsed time: " << avg_elapsed_time.back() 
-                        << " (" + to_string(config_doc["bs_s1"].GetUint()) + " -> " + to_string(batch_size_s2) + ")"
-                        << std::endl;
+
+            outFile.close();
         }
-        outFile.open("/home/slzhang/projects/ETBA/Inference/src/exit_placement/config_" + 
-                        to_string(config_doc["bs_s1"].GetUint()) + ".csv", ios::app);
-        outFile << start_point << ',';
-        for (int i = 0; i < avg_elapsed_time.size() - 1; ++i){
-            outFile << avg_elapsed_time.at(i) << ',';
+    }
+    else {
+        size_t batch_size_s1 = config_doc["bs_s1"].GetUint();
+        size_t batch_size_s2 = config_doc["bs_s2"].GetUint();
+        Profiler inst = Profiler(batch_size_s1, batch_size_s2, 
+                                config_doc["bs_num"].GetUint(),
+                                nvinfer1::ILogger::Severity::kERROR);
+        inst.build_s0();
+        float total_elapsed_time = 0;
+        for (int batch_idx = 0; batch_idx < inst.batch_num_; batch_idx++) 
+        {
+            std::vector<float> metrics = inst.infer(config_doc["seperate_or_not"].GetBool(),
+                                        config_doc["test_iter"].GetUint(), batch_idx, 
+                                        config_doc["copy_method"].GetUint());
+            total_elapsed_time += metrics[0];
         }
-        outFile << avg_elapsed_time.back() << endl;
-        outFile.close();
+        float avg_elapsed_time = total_elapsed_time/inst.batch_num_;
+        std::cout << "Average elapsed time of the full model: " 
+                    << avg_elapsed_time << std::endl;
     }
     Py_Finalize();
     return 0;

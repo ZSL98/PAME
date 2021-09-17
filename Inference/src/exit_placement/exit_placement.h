@@ -17,6 +17,7 @@
 #include <sstream>
 #include <chrono>
 #include <random>
+#include <algorithm>
 // #include <torch/torch.h>
 
 #include "Python.h"
@@ -40,7 +41,8 @@ public:
     int batch_num_;
     size_t batch_size_s1_;
     size_t batch_size_s2_;
-    float infer(const bool separate_or_not, const size_t& num_test, const int batch_idx, const int copy_method);
+    std::vector<float> infer(const bool separate_or_not, const size_t& num_test,
+                             const int batch_idx, const int copy_method, const bool overload=false);
 
 private:
     nvinfer1::DataType model_dtype_;

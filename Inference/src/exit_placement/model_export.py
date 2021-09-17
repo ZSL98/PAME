@@ -8,31 +8,33 @@ dummy_input = torch.randn(1, 3, 224, 224)
 # model = models.resnet101(pretrained=True)
 
 class construct_net(object):
-    def __init__(self, start_point: int = 0, end_point: int = 0, 
+    def __init__(self, start_point: int = 0, end_point: int = 0, exit_type: bool = False,
                         backbone: str = 'resnet') -> None:
         super().__init__()
         self.backbone = backbone
         self.start_point = start_point
         self.end_point = end_point
+        self.exit_type = exit_type
 
     def construct_net_s1(self):
         if self.backbone == 'resnet':
-            return resnet_s1(start_point=self.start_point, end_point=self.end_point)
+            return resnet_s1(start_point=self.start_point, end_point=self.end_point, simple_exit=self.exit_type)
 
     def construct_net_s2(self):
         if self.backbone == 'resnet':
             return resnet_s2(start_point=self.start_point, end_point=self.end_point)
 
-def model_export_func(start_point, end_point):
-    inst = construct_net(start_point=start_point, end_point=end_point)
+def model_export_func(start_point, end_point, exit_type=False):
+
+    inst = construct_net(start_point=start_point, end_point=end_point, exit_type=exit_type)
     dummy_input1 = torch.randn(1, 3, 224, 224)
     s1_model = inst.construct_net_s1()
     dummy_input2 = s1_model(dummy_input1)
     s2_model = inst.construct_net_s2()
 
     print("Split point: " + str(start_point))
-    print(dummy_input1.shape)
-    print(dummy_input2[0].shape)
+    # print(dummy_input1.shape)
+    # print(dummy_input2[0].shape)
 
     input_names = ["input"]
     s1_output_names = ["output1", "exit_output"]
@@ -54,4 +56,4 @@ def model_export_func(start_point, end_point):
                                   },opset_version=11)
 
 if __name__ == '__main__':
-    model_export_func(7, 9)
+    model_export_func(7, 9, False)
