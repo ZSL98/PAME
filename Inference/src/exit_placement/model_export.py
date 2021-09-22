@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from networks import resnet_s1, resnet_s2
+from networks import resnet_s1, resnet_s2, unipose_s1, unipose_s2
 import torchvision.models as models
 
 dummy_input = torch.randn(1, 3, 224, 224)
@@ -19,10 +19,14 @@ class construct_net(object):
     def construct_net_s1(self):
         if self.backbone == 'resnet':
             return resnet_s1(start_point=self.start_point, end_point=self.end_point, simple_exit=self.exit_type)
+        elif self.backbone == 'unipose':
+            return unipose_s1(start_point=self.start_point, end_point=self.end_point)
 
     def construct_net_s2(self):
         if self.backbone == 'resnet':
             return resnet_s2(start_point=self.start_point, end_point=self.end_point)
+        elif self.backbone == 'unipose':
+            return unipose_s2(start_point=self.start_point, end_point=self.end_point)
 
 def model_export_func(start_point, end_point, exit_type=False):
 
