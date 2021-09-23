@@ -184,7 +184,7 @@ bool Profiler::construct_s1(
     samplesCommon::OnnxSampleParams params;
     params.dataDirs.emplace_back("/home/slzhang/projects/ETBA/Inference/src/exit_placement/models");
     //data_dir.push_back("samples/VGG16/");
-    auto parsed = parser->parseFromFile(locateFile("resnet_s1.onnx", params.dataDirs).c_str(),
+    auto parsed = parser->parseFromFile(locateFile("unipose_s1.onnx", params.dataDirs).c_str(),
     static_cast<int>(sample::gLogger.getReportableSeverity()));
     if (!parsed) {
         return false;
@@ -223,7 +223,7 @@ bool Profiler::construct_s2(
     samplesCommon::OnnxSampleParams params;
     params.dataDirs.emplace_back("/home/slzhang/projects/ETBA/Inference/src/exit_placement/models");
     //data_dir.push_back("samples/VGG16/");
-    auto parsed = parser->parseFromFile(locateFile("resnet_s2.onnx", params.dataDirs).c_str(),
+    auto parsed = parser->parseFromFile(locateFile("unipose_s2.onnx", params.dataDirs).c_str(),
     static_cast<int>(sample::gLogger.getReportableSeverity()));
     if (!parsed) {
         return false;
@@ -367,9 +367,9 @@ int main(int argc, char** argv)
 
     std::ofstream outFile;
     Py_Initialize();
-    int extend_max_block = 5;
+    int extend_max_block = 8;
     if (config_doc["seperate_or_not"].GetBool()){
-        for (int start_point = 1; start_point < 33; start_point++)
+        for (int start_point = 8; start_point < 25; start_point++)
         {
             // Do the pre test to determine the end point of stage1 network
             std::vector<float> pre_test_time;
@@ -451,7 +451,7 @@ int main(int argc, char** argv)
                             << " (" + to_string(config_doc["bs_s1"].GetUint()) + " -> " + to_string(batch_size_s2) + ")"
                             << std::endl;
             }
-            outFile.open("/home/slzhang/projects/ETBA/Inference/src/exit_placement/config_complex_exit_" + 
+            outFile.open("/home/slzhang/projects/ETBA/Inference/src/exit_placement/config_unipose_" + 
                             to_string(config_doc["bs_s1"].GetUint()) + ".csv", ios::app);
             outFile << start_point << ',' << end_point << ',';
 
