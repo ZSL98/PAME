@@ -3,7 +3,7 @@ import torch.nn as nn
 from networks import resnet_s1, resnet_s2, unipose_s1, unipose_s2
 import torchvision.models as models
 
-# model = models.resnet101(pretrained=True)
+model = models.resnet101(pretrained=True)
 
 class construct_net(object):
     def __init__(self, start_point: int = 0, end_point: int = 0, exit_type: bool = False,

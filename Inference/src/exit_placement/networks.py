@@ -10,7 +10,6 @@ from modules.wasp import build_wasp
 from modules.decoder import build_decoder
 from modules.backbone import build_backbone
 
-
 def fc_layer(size_in, size_out):
     layer = nn.Sequential(
         nn.Linear(size_in, size_out),
@@ -334,13 +333,13 @@ class resnet_s1(nn.Module):
                 self.fc_exit = nn.Linear(512 * Bottleneck.expansion, num_classes)
         else:
             if self.pre_layer[1] == 0:
-                self.exit = self._make_complex_exit(1)
+                self.exit = self._make_complex_exit(1, stride=1)
             elif self.pre_layer[2] == 0:
-                self.exit = self._make_complex_exit(2)
+                self.exit = self._make_complex_exit(2, stride=2)
             elif self.pre_layer[3] == 0:
-                self.exit = self._make_complex_exit(3)
+                self.exit = self._make_complex_exit(3, stride=2)
             else:
-                self.exit = self._make_complex_exit(4)
+                self.exit = self._make_complex_exit(4, stride=2)
             self.fc_exit = nn.Linear(512 * Bottleneck.expansion, num_classes)
 
 
@@ -628,7 +627,7 @@ class backbone_s1(nn.Module):
         if replace_stride_with_dilation is None:
             # each element in the tuple indicates if we should replace
             # the 2x2 stride with a dilated convolution instead
-            replace_stride_with_dilation = [False, False, True]
+            replace_stride_with_dilation = [False, False, False]
         if len(replace_stride_with_dilation) != 3:
             raise ValueError("replace_stride_with_dilation should be None "
                              "or a 3-element tuple, got {}".format(replace_stride_with_dilation))
@@ -665,13 +664,13 @@ class backbone_s1(nn.Module):
                                        layer_idx=3)
 
         if self.pre_layer[1] == 0:
-            self.exit = self._make_complex_exit(1)
+            self.exit = self._make_complex_exit(1, stride=1)
         elif self.pre_layer[2] == 0:
-            self.exit = self._make_complex_exit(2)
+            self.exit = self._make_complex_exit(2, stride=2)
         elif self.pre_layer[3] == 0:
-            self.exit = self._make_complex_exit(3)
+            self.exit = self._make_complex_exit(3, stride=2)
         else:
-            self.exit = self._make_complex_exit(4)
+            self.exit = self._make_complex_exit(4, stride=2)
 
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -783,7 +782,6 @@ class backbone_s1(nn.Module):
 
         # pre-network
         x_fork = self.pre_layer1(x)
-        low_level_feat = x_fork
         x_fork = self.pre_layer2(x_fork)
         x_fork = self.pre_layer3(x_fork)
         x_fork = self.pre_layer4(x_fork)
@@ -797,7 +795,7 @@ class backbone_s1(nn.Module):
         x_c = self.post_layer3(x_c)
         x_c = self.post_layer4(x_c)
 
-        return x_c, x_exit, low_level_feat
+        return x_c, x_exit
 
     def forward(self, x: Tensor) -> Tensor:
         return self._forward_impl(x)
@@ -826,7 +824,7 @@ class backbone_s2(nn.Module):
         if replace_stride_with_dilation is None:
             # each element in the tuple indicates if we should replace
             # the 2x2 stride with a dilated convolution instead
-            replace_stride_with_dilation = [False, False, True]
+            replace_stride_with_dilation = [False, False, False]
         if len(replace_stride_with_dilation) != 3:
             raise ValueError("replace_stride_with_dilation should be None "
                              "or a 3-element tuple, got {}".format(replace_stride_with_dilation))
@@ -912,6 +910,12 @@ class backbone_s2(nn.Module):
 
     def forward(self, x: Tensor) -> Tensor:
         return self._forward_impl(x)
+
+class posenet_s1(nn.Module):
+    def __init__(self, start_point: int = 1, end_point: int = 1):
+        super(posenet_s1, self).__init__()
+        self.backbone_s1 = backbone_s1(start_point=self.start_point, end_point=self.end_point)
+        
 
 class unipose_s1(nn.Module):
     def __init__(self, dataset="NTID", backbone='resnet', output_stride=16, num_classes=21,
