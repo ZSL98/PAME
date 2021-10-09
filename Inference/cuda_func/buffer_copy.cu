@@ -36,7 +36,7 @@ void buffercopy(float* d_vector_dest, const float* d_vector_src, int sz, const i
 {
     int grid_size = 0, block_size = 0;
     CHECK_CUDA(cudaOccupancyMaxPotentialBlockSize(&grid_size, &block_size, copy_kernel, 0));
-    std::cout << "Grid size: " << grid_size << "  Block size: " << block_size << std::endl;
+    //std::cout << "Grid size: " << grid_size << "  Block size: " << block_size << std::endl;
     copy_kernel<<<grid_size, block_size>>>(d_vector_dest, d_vector_src, sz, stepOverList, singleVol);
     CHECK_CUDA(cudaDeviceSynchronize());
 }
