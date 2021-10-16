@@ -83,6 +83,5 @@ def cli_main():
     hydra_init(cfg_name)
     hydra_main()
 
-
 if __name__ == "__main__":
     cli_main()
