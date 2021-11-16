@@ -1,1 +1,0 @@
-python -u -m romp.predict.video --configs_yml='configs/video.yml'
