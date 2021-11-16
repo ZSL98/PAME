@@ -10,6 +10,8 @@ from modules.wasp import build_wasp
 from modules.decoder import build_decoder
 from modules.backbone import build_backbone
 
+BN_MOMENTUM = 0.1
+
 def fc_layer(size_in, size_out):
     layer = nn.Sequential(
         nn.Linear(size_in, size_out),
@@ -333,7 +335,7 @@ class resnet_s1(nn.Module):
                 self.fc_exit = nn.Linear(512 * Bottleneck.expansion, num_classes)
         else:
             if self.pre_layer[1] == 0:
-                self.exit = self._make_complex_exit(1, stride=1)
+                self.exit = self._make_complex_exit(1, stride=2)
             elif self.pre_layer[2] == 0:
                 self.exit = self._make_complex_exit(2, stride=2)
             elif self.pre_layer[3] == 0:
@@ -911,116 +913,248 @@ class backbone_s2(nn.Module):
     def forward(self, x: Tensor) -> Tensor:
         return self._forward_impl(x)
 
+
 class posenet_s1(nn.Module):
-    def __init__(self, start_point: int = 1, end_point: int = 1):
+    def __init__(self, start_point, end_point):
         super(posenet_s1, self).__init__()
-        self.backbone_s1 = backbone_s1(start_point=self.start_point, end_point=self.end_point)
-        
-
-class unipose_s1(nn.Module):
-    def __init__(self, dataset="NTID", backbone='resnet', output_stride=16, num_classes=21,
-                 sync_bn=True, freeze_bn=False, stride=8, 
-                 start_point: int = 1,
-                 end_point: int = 1):
-        super(unipose_s1, self).__init__()
-        self.stride = stride
-
-        BatchNorm = nn.BatchNorm2d
-
-        self.num_classes = num_classes
+        self.deconv_with_bias = False
         self.start_point = start_point
         self.end_point = end_point
+        self.backbone_s1 = backbone_s1(start_point=self.start_point, end_point=self.end_point)
 
-        self.pool_center   = nn.AvgPool2d(kernel_size=9, stride=8, padding=1)
+        self.inplanes = 2048
+        self.head_deconv_layers = self._make_deconv_layer(
+            3,
+            [256, 256, 256],
+            [4, 4, 4],
+        )
 
-        # self.backbone_s1      = build_backbone(backbone, output_stride, BatchNorm)
-        self.backbone_s1   = backbone_s1(start_point=self.start_point, end_point=self.end_point)
-        self.wasp          = build_wasp(backbone, output_stride, BatchNorm)
-        self.decoder       = build_decoder(dataset, num_classes, backbone, BatchNorm)
+        self.head_final_layer = nn.Conv2d(
+            in_channels=256,
+            out_channels=16,
+            kernel_size=1,
+            stride=1,
+            padding=1
+        )
 
-        if freeze_bn:
-            self.freeze_bn()
+    def _get_deconv_cfg(self, deconv_kernel, index):
+        if deconv_kernel == 4:
+            padding = 1
+            output_padding = 0
+        elif deconv_kernel == 3:
+            padding = 1
+            output_padding = 1
+        elif deconv_kernel == 2:
+            padding = 0
+            output_padding = 0
+
+        return deconv_kernel, padding, output_padding
+
+    def _make_deconv_layer(self, num_layers, num_filters, num_kernels):
+        assert num_layers == len(num_filters), \
+            'ERROR: num_deconv_layers is different len(num_deconv_filters)'
+        assert num_layers == len(num_kernels), \
+            'ERROR: num_deconv_layers is different len(num_deconv_filters)'
+
+        layers = []
+        for i in range(num_layers):
+            kernel, padding, output_padding = \
+                self._get_deconv_cfg(num_kernels[i], i)
+
+            planes = num_filters[i]
+            layers.append(
+                nn.ConvTranspose2d(
+                    in_channels=self.inplanes,
+                    out_channels=planes,
+                    kernel_size=kernel,
+                    stride=2,
+                    padding=padding,
+                    output_padding=output_padding,
+                    bias=self.deconv_with_bias))
+            layers.append(nn.BatchNorm2d(planes, momentum=0.1))
+            layers.append(nn.ReLU(inplace=True))
+            self.inplanes = planes
+
+        return nn.Sequential(*layers)
 
     def forward(self, input):
-        x, x_exit, low_level_feat = self.backbone_s1(input)
-        x_exit = self.wasp(x_exit)
-        x_exit = self.decoder(x_exit, low_level_feat)
-        if self.stride != 8:
-            x_exit = F.interpolate(x_exit, size=(input.size()[2:]), mode='bilinear', align_corners=True)
+        x, x_exit = self.backbone_s1(input)
+        x_exit = self.head_deconv_layers(x_exit)
+        x_exit = self.head_final_layer(x_exit)
 
-        # If you are extracting bouding boxes as well
-#         return x[:,0:self.num_classes+1,:,:], x[:,self.num_classes+1:,:,:] 
-    
-        # If you are only extracting keypoints
-        return x, low_level_feat, x_exit
+        return x, x_exit
 
-    def freeze_bn(self):
-        for m in self.modules():
-            if isinstance(m, SynchronizedBatchNorm2d):
-                m.eval()
-            elif isinstance(m, nn.BatchNorm2d):
-                m.eval()
-
-    def get_1x_lr_params(self):
-        modules = [self.backbone]
-        for i in range(len(modules)):
-            for m in modules[i].named_modules():
-                if isinstance(m[1], nn.Conv2d) or isinstance(m[1], SynchronizedBatchNorm2d) \
-                        or isinstance(m[1], nn.BatchNorm2d):
-                    for p in m[1].parameters():
-                        if p.requires_grad:
-                            yield p
-
-    def get_10x_lr_params(self):
-        modules = [self.aspp, self.decoder]
-        for i in range(len(modules)):
-            for m in modules[i].named_modules():
-                if isinstance(m[1], nn.Conv2d) or isinstance(m[1], SynchronizedBatchNorm2d) \
-                        or isinstance(m[1], nn.BatchNorm2d):
-                    for p in m[1].parameters():
-                        if p.requires_grad:
-                            yield p
-
-class unipose_s2(nn.Module):
-    def __init__(self, dataset="NTID", backbone='resnet', output_stride=16, num_classes=21,
-                 sync_bn=True, freeze_bn=False, stride=8, 
-                 start_point: int = 1,
-                 end_point: int = 1):
-        super(unipose_s2, self).__init__()
-        self.stride = stride
-
-        BatchNorm = nn.BatchNorm2d
-
-        self.num_classes = num_classes
+class posenet_s2(nn.Module):
+    def __init__(self, start_point, end_point):
+        super(posenet_s2, self).__init__()
+        self.deconv_with_bias = False
         self.start_point = start_point
         self.end_point = end_point
+        self.backbone_s2 = backbone_s2(start_point=self.start_point, end_point=self.end_point)
 
-        self.pool_center   = nn.AvgPool2d(kernel_size=9, stride=8, padding=1)
+        self.inplanes = 2048
+        self.deconv_layers = self._make_deconv_layer(
+            3,
+            [256, 256, 256],
+            [4, 4, 4],
+        )
 
-        # self.backbone      = build_backbone(backbone, output_stride, BatchNorm)
-        self.backbone_s2   = backbone_s2(start_point=self.start_point, end_point=self.end_point)
-        self.wasp          = build_wasp(backbone, output_stride, BatchNorm)
-        self.decoder       = build_decoder(dataset, num_classes, backbone, BatchNorm)
+        self.final_layer = nn.Conv2d(
+            in_channels=256,
+            out_channels=16,
+            kernel_size=1,
+            stride=1,
+            padding=1
+        )
 
-        if freeze_bn:
-            self.freeze_bn()
+    def _get_deconv_cfg(self, deconv_kernel, index):
+        if deconv_kernel == 4:
+            padding = 1
+            output_padding = 0
+        elif deconv_kernel == 3:
+            padding = 1
+            output_padding = 1
+        elif deconv_kernel == 2:
+            padding = 0
+            output_padding = 0
 
-    def forward(self, input, low_level_feat):
+        return deconv_kernel, padding, output_padding
+
+    def _make_deconv_layer(self, num_layers, num_filters, num_kernels):
+        assert num_layers == len(num_filters), \
+            'ERROR: num_deconv_layers is different len(num_deconv_filters)'
+        assert num_layers == len(num_kernels), \
+            'ERROR: num_deconv_layers is different len(num_deconv_filters)'
+
+        layers = []
+        for i in range(num_layers):
+            kernel, padding, output_padding = \
+                self._get_deconv_cfg(num_kernels[i], i)
+
+            planes = num_filters[i]
+            layers.append(
+                nn.ConvTranspose2d(
+                    in_channels=self.inplanes,
+                    out_channels=planes,
+                    kernel_size=kernel,
+                    stride=2,
+                    padding=padding,
+                    output_padding=output_padding,
+                    bias=self.deconv_with_bias))
+            layers.append(nn.BatchNorm2d(planes, momentum=0.1))
+            layers.append(nn.ReLU(inplace=True))
+            self.inplanes = planes
+
+        return nn.Sequential(*layers)
+
+    def forward(self, input):
         x = self.backbone_s2(input)
-        x = self.wasp(x)
-        x = self.decoder(x, low_level_feat)
-        if self.stride != 8:
-            x = F.interpolate(x, size=(input.size()[2:]), mode='bilinear', align_corners=True)
+        x = self.deconv_layers(x)
+        x = self.final_layer(x)
 
-        # If you are extracting bouding boxes as well
-#         return x[:,0:self.num_classes+1,:,:], x[:,self.num_classes+1:,:,:] 
-    
-        # If you are only extracting keypoints
         return x
 
-    def freeze_bn(self):
-        for m in self.modules():
-            if isinstance(m, SynchronizedBatchNorm2d):
-                m.eval()
-            elif isinstance(m, nn.BatchNorm2d):
-                m.eval()
+class PoseResNet(nn.Module):
+
+    def __init__(self):
+        self.inplanes = 64
+        self.deconv_with_bias = False
+        layers = [3, 4, 23, 3]
+        super(PoseResNet, self).__init__()
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
+                               bias=False)
+        self.bn1 = nn.BatchNorm2d(64, momentum=BN_MOMENTUM)
+        self.relu = nn.ReLU(inplace=True)
+        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+        self.layer1 = self._make_layer(Bottleneck, 64, layers[0])
+        self.layer2 = self._make_layer(Bottleneck, 128, layers[1], stride=2)
+        self.layer3 = self._make_layer(Bottleneck, 256, layers[2], stride=2)
+        self.layer4 = self._make_layer(Bottleneck, 512, layers[3], stride=2)
+
+        # used for deconv layers
+        self.deconv_layers = self._make_deconv_layer(
+            3,
+            [256, 256, 256],
+            [4, 4, 4],
+        )
+
+        self.final_layer = nn.Conv2d(
+            in_channels=256,
+            out_channels=16,
+            kernel_size=1,
+            stride=1,
+            padding=1 if 1 == 3 else 0
+        )
+
+    def _make_layer(self, block, planes, blocks, stride=1):
+        downsample = None
+        if stride != 1 or self.inplanes != planes * block.expansion:
+            downsample = nn.Sequential(
+                nn.Conv2d(self.inplanes, planes * block.expansion,
+                          kernel_size=1, stride=stride, bias=False),
+                nn.BatchNorm2d(planes * block.expansion, momentum=BN_MOMENTUM),
+            )
+
+        layers = []
+        layers.append(block(self.inplanes, planes, stride, downsample))
+        self.inplanes = planes * block.expansion
+        for i in range(1, blocks):
+            layers.append(block(self.inplanes, planes))
+
+        return nn.Sequential(*layers)
+
+    def _get_deconv_cfg(self, deconv_kernel, index):
+        if deconv_kernel == 4:
+            padding = 1
+            output_padding = 0
+        elif deconv_kernel == 3:
+            padding = 1
+            output_padding = 1
+        elif deconv_kernel == 2:
+            padding = 0
+            output_padding = 0
+
+        return deconv_kernel, padding, output_padding
+
+    def _make_deconv_layer(self, num_layers, num_filters, num_kernels):
+        assert num_layers == len(num_filters), \
+            'ERROR: num_deconv_layers is different len(num_deconv_filters)'
+        assert num_layers == len(num_kernels), \
+            'ERROR: num_deconv_layers is different len(num_deconv_filters)'
+
+        layers = []
+        for i in range(num_layers):
+            kernel, padding, output_padding = \
+                self._get_deconv_cfg(num_kernels[i], i)
+
+            planes = num_filters[i]
+            layers.append(
+                nn.ConvTranspose2d(
+                    in_channels=self.inplanes,
+                    out_channels=planes,
+                    kernel_size=kernel,
+                    stride=2,
+                    padding=padding,
+                    output_padding=output_padding,
+                    bias=self.deconv_with_bias))
+            layers.append(nn.BatchNorm2d(planes, momentum=BN_MOMENTUM))
+            layers.append(nn.ReLU(inplace=True))
+            self.inplanes = planes
+
+        return nn.Sequential(*layers)
+
+    def forward(self, x):
+        x = self.conv1(x)
+        x = self.bn1(x)
+        x = self.relu(x)
+        x = self.maxpool(x)
+
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        x = self.layer4(x)
+
+        x = self.deconv_layers(x)
+        x = self.final_layer(x)
+
+        return x

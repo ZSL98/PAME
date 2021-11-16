@@ -11,12 +11,14 @@
     "thresholds": [100, 100, 3, 100, 100, 100],
     "bs_s1": 32,
     "bs_s2": 32,
-    "b_interval": 8,
+    "b_interval": 2,
     "log_lvl": "INFO",
-    "bs_num": 200,
+    "bs_num": 20,
     "test_iter": 1,
     "copy_method": 1,
-    "seperate_or_not": true,
+    "seperate_or_not": false,
+    "start_point": 8,
+    "termi_point": 30,
     "fp16": false
   }
   

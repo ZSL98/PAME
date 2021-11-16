@@ -19,6 +19,7 @@ endmacro()
 
 
 get_filename_component(TRT_DIR ../../ ABSOLUTE)
+message(STATUS ${TRT_DIR})
 
 SET(SAMPLE_SOURCES exit_placement.cpp)
 SET(SAMPLE_HEADERS exit_placement.h)
@@ -29,6 +30,7 @@ SET(TRT_LIB_DIR /home/slzhang/projects/TensorRT-8.0.1.6/lib)
 SET(TRT_OUT_DIR /home/slzhang/projects/ETBA/Inference/src/exit_placement/build/out)
 set(CUDA_INSTALL_DIR /usr/local/cuda CACHE STRING "CUDA directory")
 set(ONNX_INCLUDE_DIR "${TRT_DIR}/parsers/onnx")
+# set(ONNX_INCLUDE_DIR "${TRT_LIB_DIR}/../include")
 set(SAMPLES_DIR ${TRT_DIR}/common)
 set(CUDA_TOOLKIT_ROOT_DIR ${CUDA_INSTALL_DIR})
 set(SAMPLES_COMMON_SOURCES ${SAMPLES_DIR}/logger.cpp)
