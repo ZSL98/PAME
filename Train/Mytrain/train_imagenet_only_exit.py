@@ -20,8 +20,8 @@ import torchvision.models as models
 
 from torch.nn import functional as F
 import wandb
-from main import DistillationBasedLoss
-from networks import exit_resnet_s1, exit_resnet_s2, exit_resnet_s3, exit_resnet_s4, resnet_s1
+from main import DistillationBasedLoss, DistillationBasedLoss_only_exit
+from networks import partial_resnet, exit_resnet_s1, exit_resnet_s2, exit_resnet_s3, exit_resnet_s4, resnet_s1
 
 parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
 parser.add_argument('--data', metavar='DIR', default='/home/slzhang/projects/Shallow-Deep-Networks-backup/data/imagenet/ILSVRC/Data/CLS-LOC',
@@ -34,7 +34,7 @@ parser.add_argument('--epochs', default=10, type=int, metavar='N',
 #                     help='split the network from the start point')
 parser.add_argument('--start-epoch', default=0, type=int, metavar='N',
                     help='manual epoch number (useful on restarts)')
-parser.add_argument('-b', '--batch-size', default=512, type=int,
+parser.add_argument('-b', '--batch-size', default=256, type=int,
                     metavar='N',
                     help='mini-batch size (default: 256), this is the total '
                          'batch size of all GPUs on the current node when '
@@ -144,7 +144,7 @@ def main_worker(gpu, ngpus_per_node, args):
                                 world_size=args.world_size, rank=args.rank)
     # create model
 
-    model = resnet_s1(start_point=args.split_point, end_point=33, simple_exit=False)
+    model = partial_resnet(start_point=args.split_point, end_point=args.split_point, simple_exit=False)
     # model_pretrained = models.resnet101(pretrained=True, progress=True)
     model_pretrained = models.resnet101(pretrained=True)
     new_list = list (model.state_dict().keys())
@@ -153,23 +153,38 @@ def main_worker(gpu, ngpus_per_node, args):
     dict_trained = model_pretrained.state_dict().copy()
     dict_new = model.state_dict().copy()
 
-
-    for i in range(626):
-        dict_new[new_list[i]] = dict_trained[trained_list[i]]
-
+    i = 0
+    for k,v in model.state_dict().items():
+        if 'exit' not in k and 'fc' not in k:
+            dict_new[new_list[i]] = dict_trained[trained_list[i]]
+        i = i + 1
+    
     model.load_state_dict(dict_new)
-
-    # torch.save(model.state_dict(), "/home/slzhang/projects/ETBA/Train/Mytrain/resnet101.model")
-    # model.load_state_dict(torch.load("/home/slzhang/projects/ETBA/Train/Mytrain/resnet101.model"), strict=False)
-    # print(len(model.state_dict().keys()))
 
     i = 0
     for k,v in model.named_parameters():
-        if i < 314:
+        if 'exit' not in k and 'fc' not in k:
             v.requires_grad=False
         else:
             v.requires_grad=True
         i = i + 1
+
+    # for i in range(626):
+    #     dict_new[new_list[i]] = dict_trained[trained_list[i]]
+
+    # model.load_state_dict(dict_new)
+
+    # i = 0
+    # for k,v in model.named_parameters():
+    #     if i < 314:
+    #         v.requires_grad=False
+    #     else:
+    #         v.requires_grad=True
+    #     i = i + 1
+
+    # torch.save(model.state_dict(), "/home/slzhang/projects/ETBA/Train/Mytrain/resnet101.model")
+    # model.load_state_dict(torch.load("/home/slzhang/projects/ETBA/Train/Mytrain/resnet101.model"), strict=False)
+    # print(len(model.state_dict().keys()))
 
     if not torch.cuda.is_available():
         print('using CPU, this will be slow')
@@ -204,8 +219,8 @@ def main_worker(gpu, ngpus_per_node, args):
         # model = model.cuda()
 
     # define loss function (criterion) and optimizer
-    # criterion = nn.CrossEntropyLoss().cuda(args.gpu)
-    criterion = DistillationBasedLoss(C=0.5, maxprob = 0.5, global_scale = 2.0 * 5/2, n_exits = 2, acc_tops = [1, 5])
+    criterion = nn.CrossEntropyLoss().cuda(args.gpu)
+    # criterion = DistillationBasedLoss_only_exit(C=0.5, maxprob = 0.5, global_scale = 2.0 * 5/2, n_exits = 2, acc_tops = [1, 5])
     optimizer = torch.optim.SGD(filter(lambda p: p.requires_grad, model.parameters()), args.lr,
                             momentum=args.momentum,
                             weight_decay=args.weight_decay)
@@ -341,9 +356,11 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
         
         # compute output
         images = images.cuda()
-        output, exit_output = model(images)
 
-        loss = criterion(output, exit_output, target)
+        # output, exit_output = model(images)
+        # loss = criterion(output, exit_output, target)
+        exit_output = model(images)
+        loss = criterion(exit_output, target)
 
         # measure accuracy and record loss
         acc1, acc5, p_acc, p_ratio = accuracy(exit_output, target, topk=(1, 5))
@@ -399,12 +416,12 @@ def validate(val_loader, model, criterion, args):
 
             # compute output
             images = images.cuda()
-            output, exit_output = model(images)
+            exit_output = model(images)
 
-            loss = criterion(output, exit_output, target)
+            loss = criterion(exit_output, target)
 
             # measure accuracy and record loss
-            matrices = val_accuracy(exit_output, output, target, topk=(1, 5))
+            matrices = val_accuracy(exit_output, target, topk=(1, 5))
             acc1 = matrices[0]
             acc5 = matrices[2]
             acc1_final = matrices[1]
@@ -529,6 +546,7 @@ def accuracy(output, target, topk=(1,)):
         res.append(pass_cnt/batch_size)
         return res
 
+#TODO: The val_accuracy is for multi-output, thus using this will cause error in saving models.
 def val_accuracy(output, final_output, target, topk=(1,)):
     """Computes the accuracy over the k top predictions for the specified values of k"""
     with torch.no_grad():
