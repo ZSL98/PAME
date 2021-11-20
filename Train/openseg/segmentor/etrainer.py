@@ -87,6 +87,14 @@ class ETrainer(object):
             params_group
         )
 
+        self.optimizer = torch.optim.SGD(
+            filter(lambda p: p.requires_grad, self.seg_net.parameters()),
+            lr=self.configer.get("lr", "base_lr"),
+            momentum=self.configer.get("optim", "sgd")["momentum"],
+            weight_decay=self.configer.get("optim", "sgd")["weight_decay"],
+            nesterov=self.configer.get("optim", "sgd")["nesterov"],
+        )
+
         self.train_loader = self.data_loader.get_trainloader()
         self.val_loader = self.data_loader.get_valloader()
         self.pixel_loss = self.loss_manager.get_seg_loss()
@@ -124,13 +132,13 @@ class ETrainer(object):
         nbb_lr = []
         params_dict = dict(self.seg_net.named_parameters())
         for key, value in params_dict.items():
-            if "backbone" not in key:
-                nbb_lr.append(value)
-            else:
+            if "backbone" in key and "exit" not in key:
                 bb_lr.append(value)
+            else:
+                nbb_lr.append(value)
 
         params = [
-            {"params": bb_lr, "lr": self.configer.get("lr", "base_lr")},
+            {"params": bb_lr, "lr": self.configer.get("lr", "base_lr") * self.configer.get("lr", "bb_mult")},
             {
                 "params": nbb_lr,
                 "lr": self.configer.get("lr", "base_lr")
@@ -215,6 +223,13 @@ class ETrainer(object):
 
             # backward_loss.backward()
             # self.optimizer.step()
+            # print(self.seg_net.module.backbone_s1.resinit.conv1.weight)
+            # print(self.seg_net.module.backbone_s1.resinit.bn1.weight)
+            # print(self.seg_net.module.backbone_s1.resinit.bn1.bias)
+            # print(self.seg_net.module.backbone_s1.resinit.bn1.running_mean)
+            # print(self.seg_net.module.backbone_s1.pre_layer3[0]['bn3']['bias'])
+            # print(self.seg_net.module.backbone_s1.pre_layer3.0.bn3.running_mean)
+            # print(self.seg_net.module.head.bias)
             scaler.scale(backward_loss).backward()
             scaler.step(self.optimizer)
             scaler.update()

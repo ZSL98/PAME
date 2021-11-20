@@ -462,7 +462,16 @@ if __name__ == "__main__":
 
     parser.add_argument("REMAIN", nargs="*")
 
+    parser.add_argument(
+        "--split_point",
+        default=None,
+        type=int,
+    )
+
     args_parser = parser.parse_args()
+    configer = Configer(args_parser=args_parser)
+    print(configer.get("gpu"))
+    exit()
 
     from lib.utils.distributed import handle_distributed
 
@@ -476,11 +485,14 @@ if __name__ == "__main__":
     cudnn.benchmark = args_parser.cudnn
 
     configer = Configer(args_parser=args_parser)
+    print(configer.get("gpu"))
+    exit()
     data_dir = configer.get("data", "data_dir")
     if isinstance(data_dir, str):
         data_dir = [data_dir]
     abs_data_dir = [os.path.expanduser(x) for x in data_dir]
     configer.update(["data", "data_dir"], abs_data_dir)
+    configer.update(["network", "split_point"], args_parser.split_point)
 
     project_dir = os.path.dirname(os.path.realpath(__file__))
     configer.add(["project_dir"], project_dir)

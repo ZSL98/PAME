@@ -8,6 +8,7 @@
 ## LICENSE file in the root directory of this source tree 
 ##+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 import pdb
+from typing import OrderedDict
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
@@ -73,41 +74,57 @@ class SpatialOCRNet_with_only_exit(nn.Module):
         # head_checkpoint = torch.load("/home/slzhang/projects/ETBA/Train/openseg/checkpoints/cityscapes/ocrnet_resnet101_s" + \
         #                             str(self.split_point+1) + "_latest.pth")
         head_checkpoint = torch.load("/home/slzhang/projects/ETBA/Train/openseg/checkpoints/cityscapes/ocrnet_resnet101_s33_latest.pth")
+        # head_checkpoint_2 = torch.load("/home/slzhang/projects/ETBA/Train/openseg/checkpoints/cityscapes/ocrnet_resnet101_s8_latest_trained_2.pth")
 
         dict_trained = head_checkpoint['state_dict'].copy()
-        dict_new = self.state_dict().copy()
+        # dict_trained_2 = head_checkpoint_2['state_dict'].copy()
+        # dict_new = self.state_dict().copy()
+        dict_new = OrderedDict()        
+        
+        # copy the backbone parameters and the head parameters
+        for k,v in self.state_dict().items():
+            if 'num_batches_tracked' not in k:
+                if 'backbone_s1.resinit' in k:
+                    dict_new[k] = dict_trained['module.backbone'+k[11:]]
+                elif 'backbone_s1.pre' in k:
+                    dict_new[k] = dict_trained['module.backbone.'+k[16:]]
+                elif 'head' in k or 'conv_3x3' in k:
+                    dict_new[k] = dict_trained['module.'+k]
 
-        # for k1, v1 in head_checkpoint['state_dict'].items():
-        #     # if 'layer4.0' in k1:
-        #     print(k1)
+        # dict_new['backbone_s1.resinit.conv1.weight'] = dict_trained_2['module.backbone_s1.resinit.conv1.weight']
+        # dict_new['backbone_s1.resinit.bn1.weight'] = dict_trained_2['module.backbone_s1.resinit.bn1.weight']
+        # dict_new['backbone_s1.resinit.bn1.bias'] = dict_trained_2['module.backbone_s1.resinit.bn1.bias']
+        # dict_new['backbone_s1.resinit.bn1.running_mean'] = dict_trained_2['module.backbone_s1.resinit.bn1.running_mean']
+        # dict_new['backbone_s1.resinit.bn1.running_var'] = dict_trained_2['module.backbone_s1.resinit.bn1.running_var']
+        # for k,v in self.state_dict().items():
+        #     if 'num_batches_tracked' not in k:
+        #         if 'backbone_s1.resinit' in k:
+        #             dict_new[k] = dict_trained_2['module.backbone_s1'+k[11:]]
+        #         elif 'backbone_s1.pre' in k:
+        #             dict_new[k] = dict_trained_2['module.backbone_s1.pre_'+k[16:]]
+        #         elif 'head' in k or 'conv_3x3' in k:
+        #             dict_new[k] = dict_trained['module.'+k]
 
         # for k,v in self.state_dict().items():
-        #     # if 'exit' in k:
-        #     print(k)
-        
-        
-        # copy the backbone parameters
-        for k,v in self.state_dict().items():
-            for k1, v1 in head_checkpoint['state_dict'].items():
-                if k1[7:] == k or (k.split('.')[-3:] == k1.split('.')[-3:] and k.split('.')[0] == "backbone_s1" and k.split('.')[1][-1] == k1.split('.')[2][-1]):
-                    # print(k)
-                    dict_new[k] = dict_trained[k1]
+        #     for k1, v1 in head_checkpoint_2['state_dict'].items():
+        #         if k==k1[7:]:
+        #             dict_new[k] = dict_trained_2[k1]      
+
+        # for k,v in self.state_dict().items():
+        #     if 'backbone' not in k and 'num' not in k:
+        #         dict_new[k] = dict_trained['module.'+k]
 
         # copy the exit parameters
-        i = 0
         for k,v in self.state_dict().items():
             if 'exit' in k and 'num' not in k:
                 dict_new[k] = dict_trained['module.backbone.layer4'+k[16:]]
-            i = i + 1
 
         # freeze the backbone parameters
-        i = 0
         for k,v in self.named_parameters():
-            if 'backbone_s1' in k:
+            if 'backbone' in k and 'exit' not in k:
                 v.requires_grad=False
             else:
                 v.requires_grad=True
-            i = i + 1
         
         self.load_state_dict(dict_new)
         # self.backbone_s1.load_state_dict(dict_new)
