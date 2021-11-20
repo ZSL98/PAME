@@ -97,6 +97,8 @@
     },
     "lr": {
       "base_lr": 0.01,
+      "bb_mult": 0,
+      "nbb_mult": 1,
       "metric": "iters",
       "lr_policy": "lambda_poly",
       "step": {

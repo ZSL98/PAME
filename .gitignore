@@ -1,6 +1,5 @@
 build
 data
-models
 config_*
 self-supervised-speech-recognition
 openseg_deprecated
