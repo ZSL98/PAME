@@ -1,4 +1,5 @@
 import argparse
+from collections import OrderedDict
 import os
 import random
 import shutil
@@ -28,13 +29,13 @@ parser.add_argument('--data', metavar='DIR', default='/home/slzhang/projects/Sha
                     help='path to dataset')
 parser.add_argument('-j', '--workers', default=4, type=int, metavar='N',
                     help='number of data loading workers (default: 4)')
-parser.add_argument('--epochs', default=10, type=int, metavar='N',
+parser.add_argument('--epochs', default=1, type=int, metavar='N',
                     help='number of total epochs to run')
 # parser.add_argument('--start-point', default=33, type=int, metavar='N',
 #                     help='split the network from the start point')
 parser.add_argument('--start-epoch', default=0, type=int, metavar='N',
                     help='manual epoch number (useful on restarts)')
-parser.add_argument('-b', '--batch-size', default=256, type=int,
+parser.add_argument('-b', '--batch-size', default=512, type=int,
                     metavar='N',
                     help='mini-batch size (default: 256), this is the total '
                          'batch size of all GPUs on the current node when '
@@ -147,27 +148,42 @@ def main_worker(gpu, ngpus_per_node, args):
     model = partial_resnet(start_point=args.split_point, end_point=args.split_point, simple_exit=False)
     # model_pretrained = models.resnet101(pretrained=True, progress=True)
     model_pretrained = models.resnet101(pretrained=True)
-    new_list = list (model.state_dict().keys())
-    trained_list = list (model_pretrained.state_dict().keys())
 
     dict_trained = model_pretrained.state_dict().copy()
-    dict_new = model.state_dict().copy()
+    dict_new = OrderedDict()
 
-    i = 0
+    # for k,v in model.state_dict().items():
+    #     print(k)
+
     for k,v in model.state_dict().items():
-        if 'exit' not in k and 'fc' not in k:
-            dict_new[new_list[i]] = dict_trained[trained_list[i]]
-        i = i + 1
-    
-    model.load_state_dict(dict_new)
+        if 'num_batches_tracked' not in k:
+            if 'pre' in k:
+                dict_new[k] = dict_trained[k[4:]]
+            elif 'exit' in k:
+                if len(model.exit) == 1:
+                    dict_new[k] = dict_trained['layer4.0.'+k[7:]]
+                elif len(model.exit) == 2:
+                    if 'exit.0' in k:
+                        dict_new[k] = dict_trained['layer3.0.'+k[7:]]
+                    elif 'exit.1' in k:
+                        dict_new[k] = dict_trained['layer4.0.'+k[7:]]
+                elif len(model.exit) == 3:
+                    if 'exit.0' in k:
+                        dict_new[k] = dict_trained['layer2.0.'+k[7:]]
+                    elif 'exit.1' in k:
+                        dict_new[k] = dict_trained['layer3.0.'+k[7:]]
+                    elif 'exit.2' in k:
+                        dict_new[k] = dict_trained['layer4.0.'+k[7:]]
+            else:
+                dict_new[k] = dict_trained[k]
 
-    i = 0
     for k,v in model.named_parameters():
         if 'exit' not in k and 'fc' not in k:
             v.requires_grad=False
         else:
             v.requires_grad=True
-        i = i + 1
+    
+    model.load_state_dict(dict_new)
 
     # for i in range(626):
     #     dict_new[new_list[i]] = dict_trained[trained_list[i]]
@@ -312,7 +328,7 @@ def main_worker(gpu, ngpus_per_node, args):
                 'state_dict':model.state_dict(),
                 'best_acc1': best_acc1,
                 'optimizer' : optimizer.state_dict(),
-            }, is_best)
+            }, is_best, filename='./models/checkpoint.pth.tar.'+str(args.split_point))
 
 
 def hook(module, fea_in, fea_out):
@@ -386,6 +402,51 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
             progress.display(i)
 
 def validate(val_loader, model, criterion, args):
+    batch_time = AverageMeter('Time', ':6.3f')
+    losses = AverageMeter('Loss', ':.4e')
+    top1 = AverageMeter('Acc@1', ':6.2f')
+    top5 = AverageMeter('Acc@5', ':6.2f')
+    progress = ProgressMeter(
+        len(val_loader),
+        [batch_time, losses, top1, top5],
+        prefix='Test: ')
+
+    # switch to evaluate mode
+    model.eval()
+
+    with torch.no_grad():
+        end = time.time()
+        for i, (images, target) in enumerate(val_loader):
+            if args.gpu is not None:
+                images = images.cuda(args.gpu, non_blocking=True)
+            if torch.cuda.is_available():
+                target = target.cuda(args.gpu, non_blocking=True)
+
+            # compute output
+            output = model(images)
+            loss = criterion(output, target)
+
+            # measure accuracy and record loss
+            acc1, acc5 = accuracy(output, target, topk=(1, 5))
+            losses.update(loss.item(), images.size(0))
+            top1.update(acc1[0], images.size(0))
+            top5.update(acc5[0], images.size(0))
+
+            # measure elapsed time
+            batch_time.update(time.time() - end)
+            end = time.time()
+
+            if i % args.print_freq == 0:
+                progress.display(i)
+
+        # TODO: this should also be done with the ProgressMeter
+        print(' * Acc@1 {top1.avg:.3f} Acc@5 {top5.avg:.3f}'
+              .format(top1=top1, top5=top5))
+
+    return top1.avg
+
+"""
+def validate(val_loader, model, criterion, args):
     global features_in_hook
     global features_out_hook
     batch_time = AverageMeter('Time', ':6.3f')
@@ -421,7 +482,7 @@ def validate(val_loader, model, criterion, args):
             loss = criterion(exit_output, target)
 
             # measure accuracy and record loss
-            matrices = val_accuracy(exit_output, target, topk=(1, 5))
+            matrices = accuracy(exit_output, target, topk=(1, 5))
             acc1 = matrices[0]
             acc5 = matrices[2]
             acc1_final = matrices[1]
@@ -460,10 +521,13 @@ def validate(val_loader, model, criterion, args):
 
     return top1.avg
 
+    """
+
 def save_checkpoint(state, is_best, filename='checkpoint.pth.tar'):
     torch.save(state, filename)
     if is_best:
-        shutil.copyfile(filename, 'model_best.pth.tar')
+        pass
+        # shutil.copyfile(filename, './models/model_best.pth.tar')
 
 def adjust_learning_rate(optimizer, epoch, args):
     """Sets the learning rate to the initial LR decayed by 10 every 30 epochs"""
@@ -517,6 +581,23 @@ def accuracy(output, target, topk=(1,)):
         maxk = max(topk)
         batch_size = target.size(0)
 
+        _, pred = output.topk(maxk, 1, True, True)
+        pred = pred.t()
+        correct = pred.eq(target.view(1, -1).expand_as(pred))
+
+        res = []
+        for k in topk:
+            correct_k = correct[:k].reshape(-1).float().sum(0, keepdim=True)
+            res.append(correct_k.mul_(100.0 / batch_size))
+        return res
+
+"""
+def accuracy(output, target, topk=(1,)):
+    # Computes the accuracy over the k top predictions for the specified values of k
+    with torch.no_grad():
+        maxk = max(topk)
+        batch_size = target.size(0)
+
         confidence = 0.5
         m = nn.Softmax(dim=1)
         softmax_output = m(output)
@@ -545,6 +626,7 @@ def accuracy(output, target, topk=(1,)):
         res.append(pass_acc)
         res.append(pass_cnt/batch_size)
         return res
+"""
 
 #TODO: The val_accuracy is for multi-output, thus using this will cause error in saving models.
 def val_accuracy(output, final_output, target, topk=(1,)):

@@ -102,7 +102,7 @@ def main():
         "architecture": "resnet101",
         "dataset": "mpii",})
 
-    model = eval('models.'+config.MODEL.NAME+'.get_pose_net_with_exit')(
+    model = eval('models.'+config.MODEL.NAME+'.get_pose_net_with_only_exit')(
         config, is_train=True, start_point = args.split_point
     )
 

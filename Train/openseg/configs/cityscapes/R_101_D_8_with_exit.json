@@ -19,7 +19,7 @@
       }
     },
     "val": {
-      "batch_size": 4,
+      "batch_size": 1,
       "mode": "ss_test",
       "data_transformer": {
         "size_mode": "fix_size",
@@ -76,7 +76,7 @@
     },
     "network":{
       "backbone": "resnet101_with_exit",
-      "split_point": 16,
+      "split_point": 26,
       "multi_grid": [1, 1, 1],
       "model_name": "spatial_ocrnet_with_exit",
       "bn_type": "inplace_abn",

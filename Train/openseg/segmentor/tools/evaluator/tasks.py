@@ -40,8 +40,6 @@ class SegTask:
     @staticmethod
     def eval(outputs, meta, running_scores):
         ori_target = meta['ori_target']
-        # print("output_size: " + str(outputs['seg'].shape))
-        # print("target_size: " + str(ori_target.shape))
         labelmap = np.argmax(outputs['seg'], axis=-1)
         running_scores['seg'].update(labelmap[None], ori_target[None])
 

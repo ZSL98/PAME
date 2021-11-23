@@ -42,6 +42,7 @@ class MPIIDataset(JointsDataset):
         file_name = os.path.join(self.root,
                                  'annot',
                                  self.image_set+'.json')
+        # file_name = "/home/slzhang/projects/ETBA/Train/pose_estimation/data/mpii/annot/valid.json"
         with open(file_name) as anno_file:
             anno = json.load(anno_file)
 

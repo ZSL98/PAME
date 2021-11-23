@@ -470,8 +470,6 @@ if __name__ == "__main__":
 
     args_parser = parser.parse_args()
     configer = Configer(args_parser=args_parser)
-    print(configer.get("gpu"))
-    exit()
 
     from lib.utils.distributed import handle_distributed
 
@@ -484,9 +482,6 @@ if __name__ == "__main__":
     cudnn.enabled = True
     cudnn.benchmark = args_parser.cudnn
 
-    configer = Configer(args_parser=args_parser)
-    print(configer.get("gpu"))
-    exit()
     data_dir = configer.get("data", "data_dir")
     if isinstance(data_dir, str):
         data_dir = [data_dir]

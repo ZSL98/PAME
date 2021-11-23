@@ -61,6 +61,7 @@ def parse_args():
     parser.add_argument('--workers',
                         help='num of dataloader workers',
                         type=int)
+    parser.add_argument('--split_point', type=int)
 
     args = parser.parse_args()
 
@@ -89,8 +90,8 @@ def main():
     torch.backends.cudnn.deterministic = config.CUDNN.DETERMINISTIC
     torch.backends.cudnn.enabled = config.CUDNN.ENABLED
 
-    model = eval('models.'+config.MODEL.NAME+'.get_pose_net')(
-        config, is_train=True
+    model = eval('models.'+config.MODEL.NAME+'.get_pose_net_with_only_exit')(
+        config, is_train=True, start_point = args.split_point
     )
 
     # copy model file
@@ -192,10 +193,10 @@ def main():
             'state_dict': model.state_dict(),
             'perf': perf_indicator,
             'optimizer': optimizer.state_dict(),
-        }, best_model, final_output_dir)
+        }, best_model, final_output_dir, filename='checkpoint.pth.tar.'+str(args.split_point))
 
     final_model_state_file = os.path.join(final_output_dir,
-                                          'final_state.pth.tar')
+                                          'final_state.pth.tar'+str(args.split_point))
     logger.info('saving final model state to {}'.format(
         final_model_state_file))
     torch.save(model.module.state_dict(), final_model_state_file)
