@@ -8,6 +8,7 @@ import torch
 import argparse
 import torchvision.transforms as transforms
 from tensorboardX import SummaryWriter
+import torch.nn as nn
 import torch.nn.parallel
 import torch.backends.cudnn as cudnn
 
@@ -15,6 +16,7 @@ import torch.backends.cudnn as cudnn
 # resnet_s1 has dual-heads
 import torchvision.models as models
 from Mytrain.networks import resnet_s1, partial_resnet
+import torchvision.datasets as datasets
 
 # SpatialOCRNet_with_exit has dual-heads, while SpatialOCRNet_with_only_exit has only one exit
 from openseg.lib.models.nets.ocrnet_with_exit import SpatialOCRNet_with_only_exit, SpatialOCRNet_with_exit
@@ -43,15 +45,167 @@ from bert_train.modeling_bert import BertWithExit, BertWithExit_s1, BertWithExit
 
 logger = logging.getLogger(__name__)
 
+# For openseg and posenet, the parameters of the dual-head-model 
+# are transfered from the ee-head-model and the final-head model. \
+# Then I realized there is no need to do the load_state_dict, \
+# so I simply use net_wth_eehead and net_wth_finalhead to convert metrics.
+
 def load_resnet(split_point):
     net_wth_finalhead = models.resnet101(pretrained=True)
-    net_wth_eehead = torch.load("/home/slzhang/projects/ETBA/Train/Mytrain/checkpoint.pth.tar."+str(split_point))
+    net_wth_eehead_dict = torch.load("/home/slzhang/projects/ETBA/Train/Mytrain/models/checkpoint.pth.tar."+str(split_point))
+    net_wth_eehead = partial_resnet(start_point=split_point, end_point=split_point, simple_exit=False)
 
-def eval_resnet(net):
-    pass
+    dict_new = OrderedDict()
+    for k,v in net_wth_eehead.state_dict().items():
+        dict_new[k] = net_wth_eehead_dict['state_dict']['module.'+k]
 
-def validate_resnet():
-    pass
+    net_wth_eehead.load_state_dict(dict_new)
+
+    return net_wth_eehead, net_wth_finalhead
+
+def eval_resnet(net_wth_eehead, net_wth_finalhead):
+    valdir = '/home/slzhang/projects/Shallow-Deep-Networks-backup/data/imagenet/ILSVRC/Data/CLS-LOC'
+    normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                     std=[0.229, 0.224, 0.225])
+    val_loader = torch.utils.data.DataLoader(
+        datasets.ImageFolder(valdir, transforms.Compose([
+            transforms.Resize(256),
+            transforms.CenterCrop(224),
+            transforms.ToTensor(),
+            normalize,
+        ])),
+        batch_size=512, shuffle=False,
+        num_workers=4, pin_memory=True)
+
+    batch_time = AverageMeter('Time', ':6.3f')
+    losses = AverageMeter('Loss', ':.4e')
+    top1 = AverageMeter('Acc@1', ':6.2f')
+    top5 = AverageMeter('Acc@5', ':6.2f')
+    top1_f = AverageMeter('Acc_final@1', ':6.2f')
+    top5_f = AverageMeter('Acc_final@5', ':6.2f')
+    pass_acc1 = AverageMeter('Acc1@Pass', ':6.2f')
+    pass_ratio1 = AverageMeter('Ratio@Pass', ':6.2f')
+    moveon_acc1 = AverageMeter('Acc1@Moveon', ':6.2f')
+    moveon_ratio1 = AverageMeter('Ratio@Moveon', ':6.2f')
+
+    progress = ProgressMeter(
+        len(val_loader),
+        [batch_time, losses, top1, top5, top1_f, top5_f, pass_acc1, pass_ratio1, moveon_acc1, moveon_ratio1],
+        prefix='Test: ')
+
+    # switch to evaluate mode
+    net_wth_eehead.eval()
+    net_wth_finalhead.eval()
+    net_wth_eehead = torch.nn.DataParallel(net_wth_eehead).cuda()
+    net_wth_finalhead = torch.nn.DataParallel(net_wth_finalhead).cuda()
+
+    criterion = nn.CrossEntropyLoss().cuda()
+
+    with torch.no_grad():
+        end = time.time()
+        for i, (images, target) in enumerate(val_loader):
+
+            # compute output
+            images = images.cuda()
+            target = target.cuda()
+
+            exit_output = net_wth_eehead(images)
+            output = net_wth_finalhead(images)
+
+            loss = criterion(exit_output, target)
+
+            # measure accuracy and record loss
+            matrices = validate_resnet(exit_output, output, target, topk=(1, 5))
+            acc1 = matrices[0]
+            acc5 = matrices[2]
+            acc1_final = matrices[1]
+            acc5_final = matrices[3]
+            p_acc = matrices[4]
+            p_ratio = matrices[5]
+            m_acc = matrices[6]
+            m_ratio = matrices[7]
+
+            p_acc = p_acc.cuda()
+            p_ratio = p_ratio.cuda()
+            m_acc = m_acc.cuda()
+            m_ratio = m_ratio.cuda()
+
+            losses.update(loss.item(), images.size(0))
+            top1.update(acc1[0], images.size(0))
+            top5.update(acc5[0], images.size(0))
+            top1_f.update(acc1_final[0], images.size(0))
+            top5_f.update(acc5_final[0], images.size(0))
+            pass_acc1.update(p_acc, images.size(0))
+            pass_ratio1.update(p_ratio, images.size(0))
+            moveon_acc1.update(m_acc, images.size(0))
+            moveon_ratio1.update(m_ratio, images.size(0))
+
+            # measure elapsed time
+            batch_time.update(time.time() - end)
+            end = time.time()
+
+            if i % 100 == 0:
+                # wandb.log({"acc1": acc1[0], "acc5": acc5[0], "pass_acc": p_acc, "pass_ratio": p_ratio})
+                progress.display(i)
+
+        print(' * Acc@1 {top1.avg:.3f} Acc@5 {top5.avg:.3f}'
+              .format(top1=top1, top5=top5))
+
+    return top1.avg
+
+def validate_resnet(output, final_output, target, topk=(1,)):
+    """Computes the accuracy over the k top predictions for the specified values of k"""
+    with torch.no_grad():
+        maxk = max(topk)
+        batch_size = target.size(0)
+
+        confidence = 0.8
+        m = nn.Softmax(dim=1)
+        softmax_output = m(output)
+        softmax_final_output = m(final_output)
+
+        pass_indicator = torch.max(softmax_output, 1)[0] > confidence
+        moveon_indicator = ~pass_indicator
+        pass_cnt = sum(pass_indicator)
+        moveon_cnt = sum(moveon_indicator)
+        correct_indicator = torch.max(softmax_output, 1)[1] == target
+        final_correct_indicator = torch.max(softmax_final_output + softmax_output, 1)[1] == target
+        # final_correct_indicator = torch.max(softmax_final_output, 1)[1] == target
+        pass_correct_indicator = pass_indicator & correct_indicator
+        moveon_correct_indicator = moveon_indicator & final_correct_indicator
+        pass_correct_cnt = sum(pass_correct_indicator)
+        moveon_correct_cnt = sum(moveon_correct_indicator)
+        # print(str(int(pass_correct_cnt)) + '/' + str(int(pass_cnt)))
+        if pass_cnt != 0:
+            pass_acc = pass_correct_cnt.float().mul_(100.0 / pass_cnt)
+        else:
+            pass_acc = torch.tensor(0.0)
+
+        if moveon_cnt != 0:
+            moveon_acc = moveon_correct_cnt.float().mul_(100.0 / moveon_cnt)
+        else:
+            moveon_acc = torch.tensor(0.0)
+
+        _, pred = output.topk(maxk, 1, True, True)
+        pred = pred.t()
+        correct = pred.eq(target.view(1, -1).expand_as(pred))
+
+        _, pred_f = final_output.topk(maxk, 1, True, True)
+        pred_f = pred_f.t()
+        correct_f = pred_f.eq(target.view(1, -1).expand_as(pred_f))
+
+        res = []
+        for k in topk:
+            correct_k = correct[:k].reshape(-1).float().sum(0, keepdim=True)
+            res.append(correct_k.mul_(100.0 / batch_size))
+            correct_f_k = correct_f[:k].reshape(-1).float().sum(0, keepdim=True)
+            res.append(correct_f_k.mul_(100.0 / batch_size))            
+
+        res.append(pass_acc)
+        res.append(pass_cnt/batch_size)
+        res.append(moveon_acc)
+        res.append(moveon_cnt/batch_size)
+        return res
 
 def load_posenet(split_point):
     net_wth_finalhead = torch.load("/home/slzhang/projects/ETBA/Train/pose_estimation/models/pytorch/pose_mpii/pose_resnet_101_384x384.pth.tar")
@@ -421,11 +575,30 @@ class AverageMeter(object):
         fmtstr = '{name} {val' + self.fmt + '} ({avg' + self.fmt + '})'
         return fmtstr.format(**self.__dict__)
 
+class ProgressMeter(object):
+    def __init__(self, num_batches, meters, prefix=""):
+        self.batch_fmtstr = self._get_batch_fmtstr(num_batches)
+        self.meters = meters
+        self.prefix = prefix
+
+    def display(self, batch):
+        entries = [self.prefix + self.batch_fmtstr.format(batch)]
+        entries += [str(meter) for meter in self.meters]
+        print('\t'.join(entries))
+
+    def _get_batch_fmtstr(self, num_batches):
+        num_digits = len(str(num_batches // 1))
+        fmt = '{:' + str(num_digits) + 'd}'
+        return '[' + fmt + '/' + fmt.format(num_batches) + ']'
+
 if __name__ == '__main__':
-    # net = load_openseg()
+    # net = load_openseg(20)
     # eval_openseg(net)
-    net = load_posenet(20)
-    eval_posenet(net)
+    # net = load_posenet(20)
+    # eval_posenet(net)
+    net_wth_eehead, net_wth_finalhead = load_resnet(1)
+    eval_resnet(net_wth_eehead, net_wth_finalhead)
+
 
 
 # load_backbone()
