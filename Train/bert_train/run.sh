@@ -4,7 +4,7 @@ trap 'exec 2>&4 1>&3' 0 1 2 3
 LOG_FILE="./train_output.log"
 exec 1>${LOG_FILE} 2>&1
 
-export TASK_NAME=mrpc
+export TASK_NAME=stsb
 
 
 for i in {1..12}
@@ -17,6 +17,8 @@ do
         --max_seq_length 128 \
         --per_device_train_batch_size 32 \
         --learning_rate 2e-5 \
-        --num_train_epochs 3 \
-        --output_dir ./tmp/$TASK_NAME/
+        --num_train_epochs 5 \
+        --overwrite_output_dir \
+        --split_point $i \
+        --output_dir ./models/$TASK_NAME/'exit'$i
 done

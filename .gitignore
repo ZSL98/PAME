@@ -17,3 +17,6 @@ events*
 checkpoint*
 test.cpp
 test.cu
+mrpc
+stsb
+train_ouput*
