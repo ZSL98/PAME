@@ -123,7 +123,6 @@ class exit_resnet_s4(nn.Module):
 
         return x_exit
 
-
 class BasicBlock(nn.Module):
     expansion: int = 1
 
@@ -171,7 +170,6 @@ class BasicBlock(nn.Module):
         out = self.relu(out)
 
         return out
-
 
 class Bottleneck(nn.Module):
     # Bottleneck in torchvision places the stride for downsampling at 3x3 convolution(self.conv2)
@@ -261,7 +259,7 @@ def model_split(layers, split_point_s1, split_point_s2, split_point_s3):
     return s1_pre_layer, s1_post_layer, s2_layer, s3_layer
 
 
-class resnet_s1(nn.Module):
+class resnet_s1_backup(nn.Module):
     def __init__(
         self,
         block: Type[Union[BasicBlock, Bottleneck]] = Bottleneck,
@@ -495,7 +493,7 @@ class resnet_s1(nn.Module):
     def forward(self, x: Tensor) -> Tensor:
         return self._forward_impl(x)
 
-class resnet_s2(nn.Module):
+class resnet_s2_backup(nn.Module):
     def __init__(
         self,
         block: Type[Union[BasicBlock, Bottleneck]] = Bottleneck,
@@ -1116,6 +1114,39 @@ class backbone_s2(nn.Module):
 
     def forward(self, x: Tensor) -> Tensor:
         return self._forward_impl(x)
+
+
+class resnet_s1(nn.Module):
+    def __init__(
+        self,
+        layers: List[int] = [3, 4, 23, 3],
+        num_classes: int = 1000,
+        split_point_s1: int = 1,
+        split_point_s2: int = 1,
+        split_point_s3: int = 1,
+        is_init: bool = True
+    ) -> None:
+        super(resnet_s1, self).__init__()
+        if is_init:
+            self.backbone = backbone_s1(layers=layers, 
+                                        num_classes=num_classes, 
+                                        split_point_s1=split_point_s1, 
+                                        split_point_s2=split_point_s2, 
+                                        split_point_s3=split_point_s3)
+        else:
+            self.backbone = backbone_s1(layers=layers, 
+                                        num_classes=num_classes, 
+                                        split_point_s1=split_point_s1, 
+                                        split_point_s2=split_point_s2, 
+                                        split_point_s3=split_point_s3)
+
+        self.fc = nn.Linear(2048, num_classes)
+
+    def forward(self, x):
+        x = self.backbone(x)
+        x = self.fc(x)
+
+        return x
 
 
 class posenet_s1(nn.Module):
