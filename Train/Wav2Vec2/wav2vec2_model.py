@@ -1542,6 +1542,11 @@ class Wav2Vec2_with_exit(Wav2Vec2PreTrainedModel):
 
         self.wav2vec2_s1.load_state_dict(dict_s1)
         self.wav2vec2_s2.load_state_dict(dict_s2)
+
+        for param in self.wav2vec2_s1.parameters():
+            param.requires_grad = False
+        for param in self.wav2vec2_s2.parameters():
+            param.requires_grad = False
         # self.init_weights()
 
     def freeze_feature_extractor(self):

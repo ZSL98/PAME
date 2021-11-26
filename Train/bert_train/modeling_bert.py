@@ -1814,6 +1814,8 @@ class BertWithSinglehead(BertPreTrainedModel):
                     dict_s1[k_s1] = dict_pre_trained[k]
 
         self.bert_s1.load_state_dict(dict_s1)
+        for param in self.bert_s1.parameters():
+            param.requires_grad = False
         del(self.bert)
         # self.init_weights()
 

@@ -2,25 +2,32 @@ from typing import OrderedDict
 import cv2
 import os
 import sys
+import csv
 import time
 import logging
 import numpy as np
 import torch
 import random
 import argparse
-from typing import Optional
+from typing import Any, Dict, List, Optional, Union
 import torchvision.transforms as transforms
 from tensorboardX import SummaryWriter
 import torch.nn as nn
 import torch.nn.parallel
 import torch.backends.cudnn as cudnn
 
+
+################### Import packages for resnet ####################
+###################################################################
 # resnet_s1 includes post_layers while partial_resnet does not
 # resnet_s1 has dual-heads
 import torchvision.models as models
 from Mytrain.networks import resnet_s1, partial_resnet
 import torchvision.datasets as torchvision_datasets
 
+
+################### Import packages for openseg ###################
+###################################################################
 # SpatialOCRNet_with_exit has dual-heads, while SpatialOCRNet_with_only_exit has only one exit
 from openseg.lib.models.nets.ocrnet_with_exit import SpatialOCRNet_with_only_exit, SpatialOCRNet_with_exit
 from openseg.lib.utils.tools.configer import Configer
@@ -31,6 +38,9 @@ from openseg.segmentor.tools.evaluator import get_evaluator
 from openseg.segmentor.etrainer import ETrainer
 from openseg import main
 
+
+################### Import packages for posenet ###################
+###################################################################
 # PoseResNetwthExit has dual-heads
 from pose_estimation.lib.models.pose_resnet import PoseResNetwthExit, PoseResNetwthOnlyExit
 from pose_estimation.lib.core.config import update_config, config, get_model_name
@@ -44,6 +54,9 @@ from pose_estimation.lib.core.evaluate import accuracy
 from pose_estimation.lib.core.inference import get_final_preds
 from pose_estimation.lib.utils.vis import save_debug_images
 
+
+################### Import packages for Bert ######################
+###################################################################
 from bert_train.modeling_bert import BertWithExit, BertWithExit_s1, BertWithExit_s2, BertWithSinglehead
 from transformers.models.bert.modeling_bert import BertForSequenceClassification
 from transformers.utils import logging as transformers_logging
@@ -66,9 +79,6 @@ from transformers import (
     set_seed,
 )
 
-
-logger = logging.getLogger(__name__)
-
 task_to_keys = {
     "cola": ("sentence", None),
     "mnli": ("premise", "hypothesis"),
@@ -80,6 +90,18 @@ task_to_keys = {
     "stsb": ("sentence1", "sentence2"),
     "wnli": ("sentence1", "sentence2"),
 }
+
+
+################### Import packages for Wav2Vec2 ##################
+###################################################################
+chars_to_ignore_regex = '[\,\?\.\!\-\;\:\"]'
+import re
+import soundfile as sf
+from transformers import Wav2Vec2CTCTokenizer, Wav2Vec2FeatureExtractor, Wav2Vec2Processor, TrainingArguments, Trainer
+from Wav2Vec2.wav2vec2_model import Wav2Vec2ForCTC, Wav2Vec2Model, Wav2Vec2PreTrainedModel, Wav2Vec2Config, Wav2Vec2Encoder, Wav2Vec2EncoderLayer
+from Wav2Vec2.wav2vec2_model import Wav2Vec2RawEncoder, Wav2Vec2_with_exit
+
+logger = logging.getLogger(__name__)
 
 # For openseg and posenet, the parameters of the dual-head-model 
 # are transfered from the ee-head-model and the final-head model. \
@@ -101,7 +123,7 @@ class convert_resnet:
 
         return net_wth_eehead, net_wth_finalhead
 
-    def eval_resnet(net_wth_eehead, net_wth_finalhead):
+    def eval_resnet(net_wth_eehead, net_wth_finalhead, p_thres):
         valdir = '/home/slzhang/projects/Shallow-Deep-Networks-backup/data/imagenet/ILSVRC/Data/CLS-LOC/val'
         normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                         std=[0.229, 0.224, 0.225])
@@ -154,7 +176,7 @@ class convert_resnet:
                 loss = criterion(exit_output, target)
 
                 # measure accuracy and record loss
-                matrices = convert_resnet.validate_resnet(0.8, exit_output, output, target, topk=(1, 5))
+                matrices = convert_resnet.validate_resnet(p_thres, exit_output, output, target, topk=(1, 5))
                 acc1 = matrices[0]
                 acc5 = matrices[2]
                 acc1_final = matrices[1]
@@ -191,7 +213,7 @@ class convert_resnet:
             print(' * Acc@1 {top1.avg:.3f} Acc@5 {top5.avg:.3f}'
                 .format(top1=top1, top5=top5))
 
-        return top1.avg
+        return pass_acc1.avg.cpu().item(), moveon_acc1.avg.cpu().item(), moveon_ratio1.avg.cpu().item(), avg_acc1.avg.cpu().item()
 
     def validate_resnet(p_thres, output, final_output, target, topk=(1,)):
         """Computes the accuracy over the k top predictions for the specified values of k"""
@@ -291,7 +313,7 @@ class convert_posenet:
         net_wth_dualheads.load_state_dict(dict_dualhead)
         return net_wth_dualheads
 
-    def eval_posenet(net):
+    def eval_posenet(net, p_thres, n_thres):
         net = net.cuda()
         net.eval()
 
@@ -324,8 +346,10 @@ class convert_posenet:
             use_target_weight=config.LOSS.USE_TARGET_WEIGHT
         ).cuda()
 
-        perf_indicator = convert_posenet.validate_posenet(0.7, 50, config, valid_loader, valid_dataset, net,
+        moveon_ratio, metric_avg = convert_posenet.validate_posenet(p_thres, n_thres, config, valid_loader, valid_dataset, net,
                                     criterion, final_output_dir)
+
+        return moveon_ratio, metric_avg
 
     def validate_posenet(p_thres, n_thres, 
                         config, val_loader, val_dataset, model, criterion, output_dir, writer_dict=None):
@@ -382,9 +406,14 @@ class convert_posenet:
                     else:
                         moveon_ratio.update(1, 1)
                         exit_output[j] = output[j]
-                # print(move_on_cnt)
-                # print('exit_output' + str(len(exit_output[exit_output > 0.8])))
-                # print('output' + str(len(output[i][output[i] > 0.8])))
+
+                # for j in range(output.shape[0]):
+                #     if sorted(exit_output[j])[-num_threshold] > pixel_confidence:
+                #         moveon_ratio.update(0, 1)
+                #     else:
+                #         moveon_ratio.update(1, 1)
+                #         exit_output[j] = output[j]                        
+
 
                 target = target.cuda(non_blocking=True)
                 target_weight = target_weight.cuda(non_blocking=True)
@@ -455,7 +484,8 @@ class convert_posenet:
             else:
                 _print_name_value(name_values, full_arch_name)
 
-        return perf_indicator
+        return moveon_ratio.avg, acc.avg
+
 
 class convert_openseg:
 
@@ -506,7 +536,7 @@ class convert_openseg:
         net_wth_dualheads.load_state_dict(dict_dualhead)
         return net_wth_dualheads
 
-    def eval_openseg(net):
+    def eval_openseg(net, p_thres, n_thres):
         net = net.cuda()
         net.eval()
         config = Configer(configs="/home/slzhang/projects/ETBA/Train/openseg/configs/cityscapes/R_101_D_8_with_exit.json")
@@ -543,7 +573,7 @@ class convert_openseg:
                 metas = data_dict["meta"]
                 output_s1 = outputs[1].permute(0, 2, 3, 1)[0].cpu().numpy()
                 output_s2 = outputs[3].permute(0, 2, 3, 1)[0].cpu().numpy()
-                final_output = convert_openseg.validate_openseg(output_s1, output_s2, moveon_ratio)
+                final_output = convert_openseg.validate_openseg(p_thres, n_thres, output_s1, output_s2, moveon_ratio)
 
                 labelmap = np.argmax(final_output, axis=-1)
                 ori_target = metas[0]['ori_target']
@@ -561,11 +591,13 @@ class convert_openseg:
                 print("mIoU_s2: {}".format(mIoU_s2.avg))
                 print("moveon_ratio: {}".format(moveon_ratio.avg))
 
+        return mIoU_s1.avg, mIoU_s2.avg, moveon_ratio.avg, mIoU.avg
+
     def validate_openseg(p_thres, n_thres, 
                         output_s1, output_s2, moveon_ratio):
         # Shape of output_s1/output_s2: (1024, 2048, 19)
-        pixel_threshold = 8
-        num_threshold = 0
+        pixel_threshold = p_thres
+        num_threshold = n_thres
         pixel_confidence = np.amax(output_s1, axis=-1)
         # print(pixel_confidence)
         pixel_over_threshold = pixel_confidence > pixel_threshold
@@ -846,6 +878,9 @@ class convert_bert:
         print("passAcc: {}".format(passAcc.avg))
         print("moveonAcc: {}".format(moveonAcc.avg))
         print("moveon_ratio: {}".format(moveonRatio.avg))
+        acc_avg = passAcc.avg * (1-moveonRatio.avg) + moveonAcc.avg * moveonRatio.avg
+
+        return passAcc.avg.item(), moveonAcc.avg.item(), moveonRatio.avg.item(), acc_avg.item()
 
 
     def validate_bert(self, output, final_output, eval_dataset):
@@ -882,10 +917,164 @@ class convert_bert:
 
 class convert_Wav2Vec2(object):
 
-    def load_Wav2Vec2(split_point):
+    def __init__(self, split_point) -> None:
+        super().__init__()
+        self.split_point = split_point
+        self.p_thres = 0.8
+        self.tokenizer = Wav2Vec2CTCTokenizer("./vocab.json", unk_token="[UNK]", pad_token="[PAD]", word_delimiter_token="|")
+        self.feature_extractor = Wav2Vec2FeatureExtractor(feature_size=1, sampling_rate=16000, padding_value=0.0, do_normalize=True, return_attention_mask=False)
+        self.processor = Wav2Vec2Processor(feature_extractor=self.feature_extractor, tokenizer=self.tokenizer)
+
+
+    def remove_special_characters(self, batch):
+        batch["text"] = re.sub(chars_to_ignore_regex, '', batch["text"]).lower()
+        return batch
+
+    def speech_file_to_array_fn(self, batch):
+        speech_array, sampling_rate = sf.read(batch["file"])
+        batch["speech"] = speech_array
+        batch["sampling_rate"] = sampling_rate
+        batch["target_text"] = batch["text"]
+        return batch
+
+    def prepare_dataset(self, batch):
+        # check that all files have the correct sampling rate
+        assert (
+            len(set(batch["sampling_rate"])) == 1
+        ), f"Make sure all inputs have the same sampling rate of {self.processor.feature_extractor.sampling_rate}."
+
+        batch["input_values"] = self.processor(batch["speech"], sampling_rate=batch["sampling_rate"][0]).input_values
+        
+        with self.processor.as_target_processor():
+            batch["labels"] = self.processor(batch["target_text"]).input_ids
+        return batch
+
+    @dataclass
+    class DataCollatorCTCWithPadding:
+        """
+        Data collator that will dynamically pad the inputs received.
+        Args:
+            processor (:class:`~transformers.Wav2Vec2Processor`)
+                The processor used for proccessing the data.
+            padding (:obj:`bool`, :obj:`str` or :class:`~transformers.tokenization_utils_base.PaddingStrategy`, `optional`, defaults to :obj:`True`):
+                Select a strategy to pad the returned sequences (according to the model's padding side and padding index)
+                among:
+                * :obj:`True` or :obj:`'longest'`: Pad to the longest sequence in the batch (or no padding if only a single
+                sequence if provided).
+                * :obj:`'max_length'`: Pad to a maximum length specified with the argument :obj:`max_length` or to the
+                maximum acceptable input length for the model if that argument is not provided.
+                * :obj:`False` or :obj:`'do_not_pad'` (default): No padding (i.e., can output a batch with sequences of
+                different lengths).
+            max_length (:obj:`int`, `optional`):
+                Maximum length of the ``input_values`` of the returned list and optionally padding length (see above).
+            max_length_labels (:obj:`int`, `optional`):
+                Maximum length of the ``labels`` returned list and optionally padding length (see above).
+            pad_to_multiple_of (:obj:`int`, `optional`):
+                If set will pad the sequence to a multiple of the provided value.
+                This is especially useful to enable the use of Tensor Cores on NVIDIA hardware with compute capability >=
+                7.5 (Volta).
+        """
+
+        processor: Wav2Vec2Processor
+        padding: Union[bool, str] = True
+        max_length: Optional[int] = None
+        max_length_labels: Optional[int] = None
+        pad_to_multiple_of: Optional[int] = None
+        pad_to_multiple_of_labels: Optional[int] = None
+
+        def __call__(self, features: List[Dict[str, Union[List[int], torch.Tensor]]]) -> Dict[str, torch.Tensor]:
+            # split inputs and labels since they have to be of different lenghts and need
+            # different padding methods
+            input_features = [{"input_values": feature["input_values"]} for feature in features]
+            label_features = [{"input_ids": feature["labels"]} for feature in features]
+
+            batch = self.processor.pad(
+                input_features,
+                padding=self.padding,
+                max_length=self.max_length,
+                pad_to_multiple_of=self.pad_to_multiple_of,
+                return_tensors="pt",
+            )
+            with self.processor.as_target_processor():
+                labels_batch = self.processor.pad(
+                    label_features,
+                    padding=self.padding,
+                    max_length=self.max_length_labels,
+                    pad_to_multiple_of=self.pad_to_multiple_of_labels,
+                    return_tensors="pt",
+                )
+
+            # replace padding with -100 to ignore loss correctly
+            labels = labels_batch["input_ids"].masked_fill(labels_batch.attention_mask.ne(1), -100)
+
+            batch["labels"] = labels
+
+            return batch
+
+    def compute_metrics(self, pred):
+        pred_logits = pred.predictions
+        pred_ids = np.argmax(pred_logits, axis=-1)
+
+        pred.label_ids[pred.label_ids == -100] = self.processor.tokenizer.pad_token_id
+
+        pred_str = self.processor.batch_decode(pred_ids)
+        # we do not want to group tokens when computing the metrics
+        label_str = self.processor.batch_decode(pred.label_ids, group_tokens=False)
+
+        wer_metric = load_metric("wer")
+        wer = wer_metric.compute(predictions=pred_str, references=label_str)
+
+        return {"wer": wer}
+
+
+    def load_Wav2Vec2(self, split_point):
+        net_wth_finalhead_dict = torch.load('/home/slzhang/projects/ETBA/Train/Wav2Vec2/checkpoints/timit_exit_12/checkpoint-435/pytorch_model.bin')
+        net_wth_eehead_dict = torch.load('/home/slzhang/projects/ETBA/Train/Wav2Vec2/checkpoints/timit_exit_{}/checkpoint-435/pytorch_model.bin'.format(split_point))
+
+
+        timit = load_dataset("timit_asr")
+        timit = timit.remove_columns(["phonetic_detail", "word_detail", "dialect_region", "id", "sentence_type", "speaker_id"])
+        timit = timit.map(self.remove_special_characters)
+        timit = timit.map(self.speech_file_to_array_fn, remove_columns=timit.column_names["train"], num_proc=4)
+        timit_prepared = timit.map(self.prepare_dataset, remove_columns=timit.column_names["train"], batch_size=8, num_proc=4, batched=True)
+
+        data_collator = self.DataCollatorCTCWithPadding(processor=self.processor, padding=True)
+
+        net_wth_finalhead = Wav2Vec2ForCTC.from_pretrained(
+            "facebook/wav2vec2-base", 
+            gradient_checkpointing=True, 
+            ctc_loss_reduction="mean", 
+            pad_token_id=self.processor.tokenizer.pad_token_id,
+        )
+
+        net_wth_eehead = Wav2Vec2_with_exit.from_pretrained(
+            "facebook/wav2vec2-base", 
+            gradient_checkpointing=True, 
+            ctc_loss_reduction="mean", 
+            pad_token_id=self.processor.tokenizer.pad_token_id,
+        )
+        net_wth_eehead.add_exit(self.split_point)
+
+        dict_eehead = OrderedDict()
+        dict_finalhead = OrderedDict()
+
+        for k,v in net_wth_eehead.state_dict().items():
+            dict_eehead[k] = net_wth_eehead_dict[k]
+        net_wth_eehead.load_state_dict(dict_eehead)
+
+        for k,v in net_wth_finalhead.state_dict().items():
+            dict_finalhead[k] = net_wth_finalhead_dict[k]
+        net_wth_finalhead.load_state_dict(dict_finalhead)
+
+        eval_eehead = self.bert_aux(net_wth_eehead)
+        eval_finalhead = self.bert_aux(net_wth_finalhead)
+
+        return eval_eehead, eval_finalhead
+
+    def eval_Wav2Vec2(self, eval_eehead, eval_finalhead):
         pass
-        # net_wth_finalhead = 
-        # net_wth_eehead = 
+
+        
 
 # markdown format output
 def _print_name_value(name_value, full_arch_name):
@@ -1063,19 +1252,68 @@ class ProgressMeter(object):
         fmt = '{:' + str(num_digits) + 'd}'
         return '[' + fmt + '/' + fmt.format(num_batches) + ']'
 
-if __name__ == '__main__':
-    task = 'bert'
-    # net = inst.load_openseg(20)
-    # inst.eval_openseg(net)
-    # net = inst.load_posenet(20)
-    # inst.eval_posenet(net)
-    # net_wth_eehead, net_wth_finalhead = inst.load_resnet(1)
-    # inst.eval_resnet(net_wth_eehead, net_wth_finalhead)
-    if task == 'bert':
-        inst = convert_bert(split_point=8, task_name='mrpc')
+
+def grid_search(task_name, split_point):
+    if task_name == 'imagenet':
+        net_wth_eehead, net_wth_finalhead = convert_resnet.load_resnet(split_point)
+        for p_thres in np.arange(0, 1.1, 0.1):
+            metric_eehead, metric_finalhead, moveon_ratio, metric_avg = convert_resnet.eval_resnet(net_wth_eehead, net_wth_finalhead, p_thres)
+            with open('/home/slzhang/projects/ETBA/Train/imagenet_results_{}.csv'.format(split_point), 'a+') as f:
+                writer = csv.writer(f)
+                writer.writerow([p_thres, metric_eehead, metric_finalhead, moveon_ratio, metric_avg])
+
+    elif task_name == 'posenet':
+        net = convert_posenet.load_posenet(split_point)
+        for p_thres in np.arange(0.6, 0.84, 0.02):
+            for n_thres in [5, 10, 15, 20, 30, 50]:
+                moveon_ratio, metric_avg = convert_posenet.eval_posenet(net, p_thres, n_thres)
+                with open('/home/slzhang/projects/ETBA/Train/posenet_results_{}.csv'.format(split_point), 'a+') as f:
+                    writer = csv.writer(f)
+                    writer.writerow([p_thres, n_thres, moveon_ratio, metric_avg])
+
+    elif task_name == 'openseg':
+        net = convert_openseg.load_posenet(split_point)
+        for p_thres in np.arange(1, 10, 1):
+            for n_thres in [100000, 200000, 500000, 1000000]:
+                metric_eehead, metric_finalhead, moveon_ratio, metric_avg = convert_resnet.eval_resnet(net, p_thres, n_thres)
+                with open('/home/slzhang/projects/ETBA/Train/openseg_results_{}.csv'.format(split_point), 'a+') as f:
+                    writer = csv.writer(f)
+                    writer.writerow([p_thres, n_thres, metric_eehead, metric_finalhead, moveon_ratio, metric_avg])
+
+    elif task_name == 'mrpc':
+        inst = convert_bert(split_point=split_point, task_name=task_name)
         eval_eehead, eval_finalhead = inst.load_bert()
-        inst.eval_bert(eval_eehead, eval_finalhead)
-    # TODO: For bert, run "python metric_convert.py --output_dir /home/slzhang/projects/ETBA/Train/bert_train/models/tmp"
+        for p_thres in np.arange(0, 1.1, 0.1):
+            inst.p_thres = p_thres
+            metric_eehead, metric_finalhead, moveon_ratio, metric_avg = inst.eval_bert(eval_eehead, eval_finalhead)
+            with open('/home/slzhang/projects/ETBA/Train/mrpc_results_{}.csv'.format(split_point), 'a+') as f:
+                writer = csv.writer(f)
+                writer.writerow([p_thres, metric_eehead, metric_finalhead, moveon_ratio, metric_avg])
+
+    elif task_name == 'Wav2Vec2':
+        pass
+
+if __name__ == '__main__':
+    task = 'Wav2Vec2'
+    mode = 'test'
+
+    if mode == 'test':
+        if task == 'posenet':
+            net = convert_posenet.load_posenet(20)
+            convert_posenet.eval_posenet(net, 0.8, 50)
+        elif task == 'openseg':
+            net = convert_openseg.load_openseg(20)
+            convert_openseg.eval_openseg(net, 8, 0)
+        elif task == 'bert':
+            inst = convert_bert(split_point=8, task_name='mrpc')
+            eval_eehead, eval_finalhead = inst.load_bert()
+            inst.eval_bert(eval_eehead, eval_finalhead)
+        elif task == 'Wav2Vec2':
+            inst = convert_Wav2Vec2(split_point=5)
+            inst.load_Wav2Vec2()
+    # TODO: For bert, run "python metric_convert.py --output_dir /home/slzhang/projects/ETBA/Train/bert_train/models/tmp --split_point 5 --model_name_or_path bert-base-cased --task_name mrpc --do_eval
+
+    grid_search(task, 5)
 
 
 
