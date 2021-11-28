@@ -1,5 +1,6 @@
 #include "argsParser.h"
 #include "buffers.h"
+#include "check.h"
 // #include "bertbuffers.h"
 #include "common.h"
 #include "logger.h"
@@ -40,6 +41,7 @@ public:
     bool build_s0(std::string model_name);
     bool build_s1(std::string model_name);
     bool build_s2(std::string model_name);
+    bool build_s3(std::string model_name);
     int batch_num_;
     size_t batch_size_s1_;
     size_t batch_size_s2_;
@@ -52,11 +54,11 @@ private:
     bool int8_{false};
 
     cudaStream_t stream_;
+    cudaStream_t stream_aux;
     cudaEvent_t infer_start;
     cudaEvent_t s1_end;
     cudaEvent_t s2_end;
-    cudaEvent_t check_start;
-    cudaEvent_t check_end;
+    cudaEvent_t s3_end;
     nvinfer1::Dims input_dims_s0;
     nvinfer1::Dims input_dims_s1;
     nvinfer1::Dims input_dims_s2;
@@ -74,9 +76,11 @@ private:
     std::shared_ptr<nvinfer1::ICudaEngine> mEngine_s0;
     std::shared_ptr<nvinfer1::ICudaEngine> mEngine_s1;
     std::shared_ptr<nvinfer1::ICudaEngine> mEngine_s2;
+    std::shared_ptr<nvinfer1::ICudaEngine> mEngine_s3;
     std::shared_ptr<nvinfer1::IExecutionContext> mContext_s0;
     std::shared_ptr<nvinfer1::IExecutionContext> mContext_s1;
     std::shared_ptr<nvinfer1::IExecutionContext> mContext_s2;
+    std::shared_ptr<nvinfer1::IExecutionContext> mContext_s3;
     // samplesCommon::BufferManager mBufferManager;
     bool construct_s0(
         TRTUniquePtr<nvinfer1::IBuilder>& builder,
@@ -89,6 +93,11 @@ private:
         TRTUniquePtr<nvinfer1::IBuilderConfig>& config,
         TRTUniquePtr<nvonnxparser::IParser>& parser, std::string model_name);
     bool construct_s2(
+        TRTUniquePtr<nvinfer1::IBuilder>& builder,
+        TRTUniquePtr<nvinfer1::INetworkDefinition>& network,
+        TRTUniquePtr<nvinfer1::IBuilderConfig>& config,
+        TRTUniquePtr<nvonnxparser::IParser>& parser, std::string model_name);
+    bool construct_s3(
         TRTUniquePtr<nvinfer1::IBuilder>& builder,
         TRTUniquePtr<nvinfer1::INetworkDefinition>& network,
         TRTUniquePtr<nvinfer1::IBuilderConfig>& config,

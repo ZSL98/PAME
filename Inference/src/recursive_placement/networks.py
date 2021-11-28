@@ -1032,10 +1032,6 @@ class backbone_s2(nn.Module):
                     model_split(layers, split_point_s1, split_point_s2, split_point_s3)
         c_layer = [3, 4, 23, 3]
 
-        print(self.s1_pre_layer)
-        print(self.s1_post_layer)
-        print(self.s2_layer)
-        print(self.s3_layer)
 
         self.s23_layer = [i+j for i, j in zip(self.s2_layer, self.s3_layer)]
         self.layer1 = self._make_layer(block, 64, self.s2_layer[0], 
@@ -1116,6 +1112,131 @@ class backbone_s2(nn.Module):
         return self._forward_impl(x)
 
 
+class backbone_s3(nn.Module):
+    def __init__(
+        self,
+        block: Type[Union[BasicBlock, Bottleneck]] = Bottleneck,
+        layers: List[int] = [3, 4, 23, 3],
+        split_point_s1: int = 1,
+        split_point_s2: int = 1,
+        split_point_s3: int = 1,
+        num_classes: int = 1000,
+        zero_init_residual: bool = False,
+        groups: int = 1,
+        width_per_group: int = 64,
+        replace_stride_with_dilation: Optional[List[bool]] = None,
+        norm_layer: Optional[Callable[..., nn.Module]] = None
+    ) -> None:
+        super(backbone_s3, self).__init__()
+        if norm_layer is None:
+            norm_layer = nn.BatchNorm2d
+        self._norm_layer = norm_layer
+
+        self.inplanes = 64
+        self.dilation = 1
+        if replace_stride_with_dilation is None:
+            # each element in the tuple indicates if we should replace
+            # the 2x2 stride with a dilated convolution instead
+            replace_stride_with_dilation = [False, False, False]
+        if len(replace_stride_with_dilation) != 3:
+            raise ValueError("replace_stride_with_dilation should be None "
+                             "or a 3-element tuple, got {}".format(replace_stride_with_dilation))
+        self.groups = groups
+        self.base_width = width_per_group
+        self.conv1 = nn.Conv2d(3, self.inplanes, kernel_size=7, stride=2, padding=3,
+                               bias=False)
+        self.bn1 = norm_layer(self.inplanes)
+        self.relu = nn.ReLU(inplace=True)
+        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+
+        self.s1_pre_layer, self.s1_post_layer, self.s2_layer, self.s3_layer = \
+                    model_split(layers, split_point_s1, split_point_s2, split_point_s3)
+        c_layer = [3, 4, 23, 3]
+
+        print(self.s1_pre_layer)
+        print(self.s1_post_layer)
+        print(self.s2_layer)
+        print(self.s3_layer)
+
+        self.layer1 = self._make_layer(block, 64, self.s3_layer[0], 
+                                       start_of_stage=(self.s3_layer[0]==c_layer[0]), layer_idx=0)
+        self.layer2 = self._make_layer(block, 128, self.s3_layer[1], stride=2,
+                                       dilate=replace_stride_with_dilation[0], 
+                                       start_of_stage=(self.s3_layer[1]==c_layer[1]), layer_idx=1)
+        self.layer3 = self._make_layer(block, 256, self.s3_layer[2], stride=2,
+                                       dilate=replace_stride_with_dilation[1], 
+                                       start_of_stage=(self.s3_layer[2]==c_layer[2]), layer_idx=2)
+        self.layer4 = self._make_layer(block, 512, self.s3_layer[3], stride=2,
+                                       dilate=replace_stride_with_dilation[2], 
+                                       start_of_stage=(self.s3_layer[3]==c_layer[3]), layer_idx=3)
+
+
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+            elif isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
+
+        # Zero-initialize the last BN in each residual branch,
+        # so that the residual branch starts with zeros, and each residual block behaves like an identity.
+        # This improves the model by 0.2~0.3% according to https://arxiv.org/abs/1706.02677
+        if zero_init_residual:
+            for m in self.modules():
+                if isinstance(m, Bottleneck):
+                    nn.init.constant_(m.bn3.weight, 0)  # type: ignore[arg-type]
+                elif isinstance(m, BasicBlock):
+                    nn.init.constant_(m.bn2.weight, 0)  # type: ignore[arg-type]
+
+    def _make_layer(self, block: Type[Union[BasicBlock, Bottleneck]], planes: int, blocks: int,
+                    stride: int = 1, dilate: bool = False, start_of_stage: bool = True,
+                    layer_idx: int = 0) -> nn.Sequential:
+        self.inplanes_list = [128, 256, 512, 1024]
+        if blocks == 0:
+            layers = []
+            return nn.Sequential(*layers)
+        norm_layer = self._norm_layer
+        downsample = None
+        previous_dilation = self.dilation
+        if dilate:
+            self.dilation *= stride
+            stride = 1
+
+        layers = []
+        if not start_of_stage:
+            for _ in range(0, blocks):
+                layers.append(block(planes * block.expansion, planes, groups=self.groups,
+                                    base_width=self.base_width, dilation=self.dilation,
+                                    norm_layer=norm_layer))
+        else:
+            downsample = nn.Sequential(
+                conv1x1(self.inplanes_list[layer_idx], planes * block.expansion, stride),
+                norm_layer(planes * block.expansion),
+            )
+            layers.append(block(self.inplanes_list[layer_idx], planes, stride, downsample, self.groups,
+                        self.base_width, previous_dilation, norm_layer))
+            for _ in range(1, blocks):
+                layers.append(block(planes * block.expansion, planes, groups=self.groups,
+                                    base_width=self.base_width, dilation=self.dilation,
+                                    norm_layer=norm_layer))           
+
+        return nn.Sequential(*layers)
+
+    def _forward_impl(self, x: Tensor) -> Tensor:
+        # See note [TorchScript super()]
+
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        x = self.layer4(x)
+
+        return x
+
+    def forward(self, x: Tensor) -> Tensor:
+        return self._forward_impl(x)
+
+
+
 class resnet_s1(nn.Module):
     def __init__(
         self,
@@ -1128,7 +1249,45 @@ class resnet_s1(nn.Module):
     ) -> None:
         super(resnet_s1, self).__init__()
         if is_init:
+            self.backbone = backbone_init(layers=layers, 
+                                        num_classes=num_classes, 
+                                        split_point_s1=split_point_s1, 
+                                        split_point_s2=split_point_s2, 
+                                        split_point_s3=split_point_s3)
+        else:
             self.backbone = backbone_s1(layers=layers, 
+                                        num_classes=num_classes, 
+                                        split_point_s1=split_point_s1, 
+                                        split_point_s2=split_point_s2, 
+                                        split_point_s3=split_point_s3)
+        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
+        self.fc = nn.Linear(2048, num_classes)
+
+    def forward(self, x):
+        x_c, x_exit = self.backbone(x)
+        x = self.avgpool(x_exit)
+        x = torch.flatten(x, 1)
+        x = self.fc(x)
+
+        return x_c, x
+
+class posenet_s1(nn.Module):
+    def __init__(
+        self,
+        layers: List[int] = [3, 4, 23, 3],
+        num_classes: int = 1000,
+        split_point_s1: int = 1,
+        split_point_s2: int = 1,
+        split_point_s3: int = 1,
+        is_init: bool = True
+    ) -> None:
+        super(posenet_s1, self).__init__()
+        self.deconv_with_bias = False
+        self.split_point_s1 = split_point_s1
+        self.split_point_s2 = split_point_s2
+        self.split_point_s3 = split_point_s3
+        if is_init:
+            self.backbone = backbone_init(layers=layers, 
                                         num_classes=num_classes, 
                                         split_point_s1=split_point_s1, 
                                         split_point_s2=split_point_s2, 
@@ -1140,16 +1299,70 @@ class resnet_s1(nn.Module):
                                         split_point_s2=split_point_s2, 
                                         split_point_s3=split_point_s3)
 
-        self.fc = nn.Linear(2048, num_classes)
+        self.inplanes = 2048
+        self.head_deconv_layers = self._make_deconv_layer(
+            3,
+            [256, 256, 256],
+            [4, 4, 4],
+        )
 
-    def forward(self, x):
-        x = self.backbone(x)
-        x = self.fc(x)
+        self.head_final_layer = nn.Conv2d(
+            in_channels=256,
+            out_channels=16,
+            kernel_size=1,
+            stride=1,
+            padding=1
+        )
 
-        return x
+    def _get_deconv_cfg(self, deconv_kernel, index):
+        if deconv_kernel == 4:
+            padding = 1
+            output_padding = 0
+        elif deconv_kernel == 3:
+            padding = 1
+            output_padding = 1
+        elif deconv_kernel == 2:
+            padding = 0
+            output_padding = 0
+
+        return deconv_kernel, padding, output_padding
+
+    def _make_deconv_layer(self, num_layers, num_filters, num_kernels):
+        assert num_layers == len(num_filters), \
+            'ERROR: num_deconv_layers is different len(num_deconv_filters)'
+        assert num_layers == len(num_kernels), \
+            'ERROR: num_deconv_layers is different len(num_deconv_filters)'
+
+        layers = []
+        for i in range(num_layers):
+            kernel, padding, output_padding = \
+                self._get_deconv_cfg(num_kernels[i], i)
+
+            planes = num_filters[i]
+            layers.append(
+                nn.ConvTranspose2d(
+                    in_channels=self.inplanes,
+                    out_channels=planes,
+                    kernel_size=kernel,
+                    stride=2,
+                    padding=padding,
+                    output_padding=output_padding,
+                    bias=self.deconv_with_bias))
+            layers.append(nn.BatchNorm2d(planes, momentum=0.1))
+            layers.append(nn.ReLU(inplace=True))
+            self.inplanes = planes
+
+        return nn.Sequential(*layers)
+
+    def forward(self, input):
+        x, x_exit = self.backbone(input)
+        x_exit = self.head_deconv_layers(x_exit)
+        x_exit = self.head_final_layer(x_exit)
+
+        return x, x_exit
 
 
-class posenet_s1(nn.Module):
+class posenet_s1_backup(nn.Module):
     def __init__(self, start_point, end_point):
         super(posenet_s1, self).__init__()
         self.deconv_with_bias = False

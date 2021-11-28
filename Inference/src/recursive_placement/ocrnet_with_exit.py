@@ -67,7 +67,7 @@ class SpatialOCRNet_s1(nn.Module):
         x1_dsn = F.interpolate(x1_dsn, size=(x_.size(2), x_.size(3)), mode="bilinear", align_corners=True)
         x1 = F.interpolate(x1, size=(x_.size(2), x_.size(3)), mode="bilinear", align_corners=True)
 
-        return  x1_dsn, x1
+        return x1_dsn, x1
 
 
 class SpatialOCRNet_s2(nn.Module):

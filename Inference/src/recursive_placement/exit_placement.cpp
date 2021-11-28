@@ -11,11 +11,11 @@ const size_t& batch_size_s1, const size_t& batch_size_s2,
 : batch_size_s1_(batch_size_s1), batch_size_s2_(batch_size_s2), batch_num_(batch_num)
 {
     cudaStreamCreate(&(stream_));
+    cudaStreamCreate(&(stream_aux));
     CUDACHECK(cudaEventCreate(&infer_start));
     CUDACHECK(cudaEventCreate(&s1_end));
     CUDACHECK(cudaEventCreate(&s2_end));
-    CUDACHECK(cudaEventCreate(&check_start));
-    CUDACHECK(cudaEventCreate(&check_end));
+    CUDACHECK(cudaEventCreate(&s3_end));
     sample::gLogger.setReportableSeverity(severity);
 }
 
@@ -481,24 +481,37 @@ std::vector<float> Profiler::infer(const bool separate_or_not, const size_t& num
         CUDACHECK(cudaEventSynchronize(s1_end));
 
 
-        /* Below is the module for check */
-
-        CUDACHECK(cudaEventRecord(check_start, stream_));
-        std::shared_ptr<samplesCommon::ManagedBuffer> exitPtr = buffer_s1.getImmediateBuffer(2);
-        float* exitPtr_ = static_cast<float*>(exitPtr->deviceBuffer.data());
-
-        float threshold = 0.5;
         int length = 1000;
         int* copy_list;
         int size = (int) batch_size_s1_*sizeof(int);
         cudaMalloc(&copy_list, size);
         cudaMemset(copy_list, 0, size);
-        cls_copy_list(exitPtr_, copy_list, threshold, length, batch_size_s1_);
-        CUDACHECK(cudaEventRecord(check_end, stream_));
-        CUDACHECK(cudaEventSynchronize(check_end));
+        std::shared_ptr<samplesCommon::ManagedBuffer> exitPtr = buffer_s1.getImmediateBuffer(2);
+        float* exitPtr_host = static_cast<float*>(exitPtr->hostBuffer.data());
+        float* exitPtr_device = static_cast<float*>(exitPtr->deviceBuffer.data());
+
+        /* Below is the check module on CPU */
+        // buffer_s1.copyOutputToHost();
+        // std::shared_ptr<samplesCommon::ManagedBuffer> exitPtr = buffer_s1.getImmediateBuffer(2);
+        // float* exitPtr_host = static_cast<float*>(exitPtr->hostBuffer.data());
+        // std::vector<int> copy_list_host = check_on_cpu(mEngine_s1, model_name, exitPtr_host, batch_size_s1_);
+
+        /* Below is the check module on GPU */
+        float threshold = 0.5;
+        cls_copy_list(exitPtr_device, copy_list, threshold, length, batch_size_s1_);
+
+        samplesCommon::BufferManager buffer_s2(mEngine_s2, batch_size_s1_, buffer_s1.getImmediateBuffer(1));
+        auto status_s2 = mContext_s2->enqueueV2(buffer_s2.getDeviceBindings().data(), stream_, nullptr);
+        if (!status_s2) {
+            std::cout << "Error when inferring S2 model" << std::endl;
+        }
+
+        // cudaMemcpyAsync(copy_list, &copy_list_host, sizeof(int)*1000, cudaMemcpyHostToDevice, stream_);
+
+        CUDACHECK(cudaEventRecord(s2_end, stream_));
+        CUDACHECK(cudaEventSynchronize(s2_end));
 
         /* Code for generate the copy list randomly */
-
         std::vector<int> full_copy_list;
         for(int i = 0; i < batch_size_s1_; ++i)
         {
@@ -529,15 +542,15 @@ std::vector<float> Profiler::infer(const bool separate_or_not, const size_t& num
             input_dims_s2.d[0] = next_batch_size;
             mContext_s2->setBindingDimensions(0, input_dims_s2);
         }
-        std::shared_ptr<samplesCommon::ManagedBuffer> srcPtr = buffer_s1.getImmediateBuffer(1);
-        samplesCommon::BufferManager buffer_s2(mEngine_s2, batch_size_s1_,
+        std::shared_ptr<samplesCommon::ManagedBuffer> srcPtr = buffer_s2.getImmediateBuffer(1);
+        samplesCommon::BufferManager buffer_s3(mEngine_s3, batch_size_s1_,
                                 srcPtr, &fake_copy_list, copy_method);
-        auto status_s2 = mContext_s2->enqueueV2(buffer_s2.getDeviceBindings().data(), stream_, nullptr);
-        if (!status_s2) {
-            std::cout << "Error when inferring S2 model" << std::endl;
+        auto status_s3 = mContext_s3->enqueueV2(buffer_s3.getDeviceBindings().data(), stream_, nullptr);
+        if (!status_s3) {
+            std::cout << "Error when inferring S3 model" << std::endl;
         }
-        CUDACHECK(cudaEventRecord(s2_end, stream_));
-        CUDACHECK(cudaEventSynchronize(s2_end));
+        CUDACHECK(cudaEventRecord(s3_end, stream_));
+        CUDACHECK(cudaEventSynchronize(s3_end));
     
         CUDACHECK(cudaEventElapsedTime(&elapsed_time_s1, infer_start, s1_end));
         CUDACHECK(cudaEventElapsedTime(&elapsed_time_s2, s1_end, s2_end));
@@ -592,8 +605,8 @@ bool model_generation(std::string model_name, const int split_point_s1, const in
 
 int main(int argc, char** argv)
 {
-    int nGpuId = 2;
-    cudaSetDevice(nGpuId);
+    // int nGpuId = 0;
+    // cudaSetDevice(nGpuId);
     std::string model_name = argv[1];
     std::cout << "Profiling model: " << model_name + "!" << std::endl;
     std::string config_path = "/home/slzhang/projects/ETBA/Inference/src/recursive_placement/profiler_config.json";
@@ -610,9 +623,9 @@ int main(int argc, char** argv)
     config_doc.ParseStream(config_fs);
 
     std::ofstream outFile;
-    Py_Initialize();
+    // Py_Initialize();
     int extend_max_block = 2;
-    int trans_max_block = 3;
+    int trans_max_block = 5;
     if (config_doc["seperate_or_not"].GetBool()){
         for (int split_point_s1 = config_doc["start_point"].GetUint(); split_point_s1 < config_doc["termi_point"].GetUint(); split_point_s1++)
         {
@@ -620,15 +633,15 @@ int main(int argc, char** argv)
             std::vector<float> pre_test_time;
             for (int post_block_num = 0; post_block_num < extend_max_block; post_block_num++)
             {
-                for (int trans_block_num = 0; trans_block_num < trans_max_block; trans_max_block++)
+                for (int trans_block_num = 0; trans_block_num < trans_max_block; trans_block_num++)
                 {
                     int split_point_s2 = split_point_s1 + post_block_num;
                     int split_point_s3 = split_point_s2 + trans_block_num;
-                    bool model_generated = model_generation(model_name, start_point, end_point);
-                    if(!model_generated){
-                        std::cout<<"failed to export models"<<endl;
-                        return -1;
-                    }
+                    // bool model_generated = model_generation(model_name, split_point_s1, split_point_s2, split_point_s3);
+                    // if(!model_generated){
+                    //     std::cout<<"failed to export models"<<endl;
+                    //     return -1;
+                    // }
                     Profiler pre_inst = Profiler(config_doc["bs_s1"].GetUint(), 
                                             config_doc["bs_s2"].GetUint(), 
                                             config_doc["bs_num"].GetUint(),
@@ -637,26 +650,29 @@ int main(int argc, char** argv)
                     pre_inst.build_s1(model_name);
                     pre_inst.build_s2(model_name);
                     pre_inst.build_s3(model_name);
-
+                    float pre_test_total_time = 0;
+                    // std::cout << "Here3" << std::endl;
+                    for (int batch_idx = 0; batch_idx < pre_inst.batch_num_; batch_idx++) 
+                    {
+                        std::vector<float> metrics = pre_inst.infer(true, config_doc["test_iter"].GetUint(), batch_idx, 
+                                                        config_doc["copy_method"].GetUint(), false, model_name);
+                        pre_test_total_time += metrics[2];
+                    }
+                    std::cout << "Average elapsed time: " << pre_test_total_time/pre_inst.batch_num_
+                                << " post_block_num: " + to_string(post_block_num)
+                                << " trans_block_num: " + to_string(trans_block_num)
+                                << std::endl;
+                    pre_test_time.push_back(pre_test_total_time/pre_inst.batch_num_);
+                    return 0;
                 }
-                float pre_test_total_time = 0;
-                // std::cout << "Here3" << std::endl;
-                for (int batch_idx = 0; batch_idx < pre_inst.batch_num_; batch_idx++) 
-                {
-                    std::vector<float> metrics = pre_inst.infer(true, config_doc["test_iter"].GetUint(), batch_idx, 
-                                                    config_doc["copy_method"].GetUint(), false, model_name);
-                    pre_test_total_time += metrics[2];
-                }
-                std::cout << "Average elapsed time: " << pre_test_total_time/pre_inst.batch_num_
-                            << " post_block_num: " + to_string(post_block_num)
-                            << std::endl;
-                pre_test_time.push_back(pre_test_total_time/pre_inst.batch_num_);
             }
             auto shortest_time = std::min_element(std::begin(pre_test_time), std::end(pre_test_time));
-            int opt_post_block_num = std::distance(std::begin(pre_test_time), shortest_time);
-            int end_point = start_point + opt_post_block_num;
-            std::cout << "Opt end_point for start_point " << start_point << " is " << end_point << std::endl;
-            bool opt_model_generated = model_generation(model_name, start_point, end_point);
+            int opt_post_block_num = std::distance(std::begin(pre_test_time), shortest_time)/trans_max_block;
+            int opt_trans_block_num = std::distance(std::begin(pre_test_time), shortest_time)%trans_max_block;
+            int split_point_s2 = split_point_s1 + opt_post_block_num;
+            int split_point_s3 = split_point_s2 + opt_trans_block_num;
+            std::cout << "Opt split points for split_point_s1 " << split_point_s1 << " are " << split_point_s2 << " and " << split_point_s3 << std::endl;
+            bool opt_model_generated = model_generation(model_name, split_point_s1, split_point_s2, split_point_s3);
             if(!opt_model_generated){
                 std::cout<<"failed to export opt models"<<endl;
                 return -1;
@@ -706,7 +722,7 @@ int main(int argc, char** argv)
             }
             outFile.open("/home/slzhang/projects/ETBA/Inference/src/recursive_placement/config_" + model_name + "_" +
                             to_string(config_doc["bs_s1"].GetUint()) + ".csv", ios::app);
-            outFile << start_point << ',' << end_point << ',';
+            outFile << split_point_s1 << ',' << split_point_s2 << ',' << split_point_s3 << ',';
 
             for (int i = 0; i < avg_elapsed_time.size(); ++i){
                 outFile << avg_elapsed_time_s1.at(i) << ',';
