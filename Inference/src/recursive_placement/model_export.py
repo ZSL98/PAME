@@ -333,7 +333,6 @@ def model_export_func(model_name, split_point_s1, split_point_s2, split_point_s3
 
     if inst.backbone == "resnet" or inst.backbone == "posenet":
         dummy_input3 = s2_model(dummy_input2)
-        dummy_input3 = dummy_input3[0]
     elif inst.backbone == "Wav2Vec2":
         dummy_input3 = torch.randn(1, 624, 768)
     elif inst.backbone == "openseg":
@@ -375,7 +374,7 @@ def model_export_func(model_name, split_point_s1, split_point_s2, split_point_s3
 
         s3_input_names = ["trans_input"]
         s3_output_names = ["final_output"]
-        torch.onnx.export(s3_model, dummy_input2,
+        torch.onnx.export(s3_model, dummy_input3,
                             "/home/slzhang/projects/ETBA/Inference/src/recursive_placement/models/" + inst.backbone + "_s3.onnx",
                         input_names=s3_input_names, output_names=s3_output_names,
                         verbose=False,dynamic_axes={
@@ -461,4 +460,4 @@ def model_export_func(model_name, split_point_s1, split_point_s2, split_point_s3
 
 
 if __name__ == '__main__':
-    model_export_func('resnet', 1, 1, 4)
+    model_export_func('resnet', 3, 5, 10)
