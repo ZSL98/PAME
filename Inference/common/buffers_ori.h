@@ -198,7 +198,7 @@ class HostAllocator
 public:
     bool operator()(void** ptr, size_t size) const
     {
-        *ptr = malloc(size);
+        cudaMallocHost(ptr, size);
         return *ptr != nullptr;
     }
 };

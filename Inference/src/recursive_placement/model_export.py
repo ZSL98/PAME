@@ -460,4 +460,4 @@ def model_export_func(model_name, split_point_s1, split_point_s2, split_point_s3
 
 
 if __name__ == '__main__':
-    model_export_func('resnet', 3, 5, 10)
+    model_export_func('resnet', 3, 5, 6)

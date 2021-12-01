@@ -360,6 +360,13 @@ std::vector<float> Profiler::infer(const bool separate_or_not, const size_t& num
 
 
         /* Below is the module for check */
+        std::shared_ptr<samplesCommon::ManagedBuffer> exitPtr = buffer_s1.getImmediateBuffer(2);
+        float* exitPtr_device = static_cast<float*>(exitPtr->deviceBuffer.data());
+
+        int *copy_list;
+        int size = (int) batch_size_s1_*sizeof(int);
+        cudaMalloc(&copy_list, size);
+        max_reduction_resnet<<<32, 1000>>> (exitPtr_device, copy_list);
 
         /*
         CUDACHECK(cudaEventRecord(check_start, stream_));
@@ -472,8 +479,8 @@ bool model_generation(std::string model_name, const int start_point, const int e
 
 int main(int argc, char** argv)
 {
-    int nGpuId = 2;
-    cudaSetDevice(nGpuId);
+    // int nGpuId = 2;
+    // cudaSetDevice(nGpuId);
     std::string model_name = argv[1];
     std::cout << "Profiling model: " << model_name + "!" << std::endl;
     std::string config_path = "/home/slzhang/projects/ETBA/Inference/src/exit_placement/profiler_config.json";
@@ -490,7 +497,7 @@ int main(int argc, char** argv)
     config_doc.ParseStream(config_fs);
 
     std::ofstream outFile;
-    Py_Initialize();
+    // Py_Initialize();
     int extend_max_block = 1;
     if (config_doc["seperate_or_not"].GetBool()){
         for (int start_point = config_doc["start_point"].GetUint(); start_point < config_doc["termi_point"].GetUint(); start_point++)
@@ -500,11 +507,11 @@ int main(int argc, char** argv)
             for (int post_block_num = 0; post_block_num < extend_max_block; post_block_num++)
             {
                 int end_point = start_point + post_block_num;
-                bool model_generated = model_generation(model_name, start_point, end_point);
-                if(!model_generated){
-                    std::cout<<"failed to export models"<<endl;
-                    return -1;
-                }
+                // bool model_generated = model_generation(model_name, start_point, end_point);
+                // if(!model_generated){
+                //     std::cout<<"failed to export models"<<endl;
+                //     return -1;
+                // }
                 Profiler pre_inst = Profiler(config_doc["bs_s1"].GetUint(), 
                                         config_doc["bs_s2"].GetUint(), 
                                         config_doc["bs_num"].GetUint(),
@@ -525,6 +532,7 @@ int main(int argc, char** argv)
                             << " post_block_num: " + to_string(post_block_num)
                             << std::endl;
                 pre_test_time.push_back(pre_test_total_time/pre_inst.batch_num_);
+                return 0;
             }
             auto shortest_time = std::min_element(std::begin(pre_test_time), std::end(pre_test_time));
             int opt_post_block_num = std::distance(std::begin(pre_test_time), shortest_time);

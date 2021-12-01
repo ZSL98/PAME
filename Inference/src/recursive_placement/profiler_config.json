@@ -15,7 +15,7 @@
     "log_lvl": "INFO",
     "bs_num": 1,
     "test_iter": 1,
-    "copy_method": 1,
+    "copy_method": 0,
     "seperate_or_not": true,
     "start_point": 1,
     "termi_point": 30,

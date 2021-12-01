@@ -491,14 +491,13 @@ std::vector<float> Profiler::infer(const bool separate_or_not, const size_t& num
         float* exitPtr_device = static_cast<float*>(exitPtr->deviceBuffer.data());
 
         /* Below is the check module on CPU */
-        // buffer_s1.copyOutputToHost();
-        // std::shared_ptr<samplesCommon::ManagedBuffer> exitPtr = buffer_s1.getImmediateBuffer(2);
-        // float* exitPtr_host = static_cast<float*>(exitPtr->hostBuffer.data());
-        // std::vector<int> copy_list_host = check_on_cpu(mEngine_s1, model_name, exitPtr_host, batch_size_s1_);
+        // TODO: copy all related buffers to host. This is not necessary.
+        buffer_s1.copyOutputToHost();
+        std::vector<int> copy_list_host = check_on_cpu(mEngine_s1, model_name, exitPtr_host, batch_size_s1_);
 
         /* Below is the check module on GPU */
-        float threshold = 0.5;
-        cls_copy_list(exitPtr_device, copy_list, threshold, length, batch_size_s1_);
+        // float threshold = 0.5;
+        // cls_copy_list(exitPtr_device, copy_list, threshold, length, batch_size_s1_);
 
         samplesCommon::BufferManager buffer_s2(mEngine_s2, batch_size_s1_, buffer_s1.getImmediateBuffer(1));
         auto status_s2 = mContext_s2->enqueueV2(buffer_s2.getDeviceBindings().data(), stream_, nullptr);
@@ -506,7 +505,7 @@ std::vector<float> Profiler::infer(const bool separate_or_not, const size_t& num
             std::cout << "Error when inferring S2 model" << std::endl;
         }
 
-        // cudaMemcpyAsync(copy_list, &copy_list_host, sizeof(int)*1000, cudaMemcpyHostToDevice, stream_);
+        cudaMemcpyAsync(copy_list, &copy_list_host, sizeof(int)*1000, cudaMemcpyHostToDevice, stream_);
 
         CUDACHECK(cudaEventRecord(s2_end, stream_));
         CUDACHECK(cudaEventSynchronize(s2_end));

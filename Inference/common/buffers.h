@@ -238,7 +238,9 @@ public:
     bool operator()(void** ptr, size_t size) const
     {
         *ptr = malloc(size);
+        // cudaMallocHost(ptr, size);
         return *ptr != nullptr;
+        // return cudaMallocHost(ptr, size) == cudaSuccess;
     }
 };
 
@@ -247,6 +249,7 @@ class HostFree
 public:
     void operator()(void* ptr) const
     {
+        // cudaFreeHost(ptr);
         free(ptr);
     }
 };

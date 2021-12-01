@@ -218,4 +218,4 @@ def model_export_func(model_name, start_point, end_point, exit_type=False):
 
 
 if __name__ == '__main__':
-    model_export_func('resnet', 1, 1, False)
+    model_export_func('resnet', 8, 9, False)
