@@ -74,7 +74,7 @@ def model_export_func(model_name, start_point, end_point, exit_type=False):
     inst = construct_net(start_point=start_point, end_point=end_point, exit_type=exit_type, backbone = model_name)
     # dummy_input1 = torch.randn(1, 3, 513, 513)
     if inst.backbone == "resnet" or inst.backbone == "posenet":
-        dummy_input1 = torch.randn(1, 3, 384, 384)
+        dummy_input1 = torch.randn(1, 3, 224, 224)
     elif inst.backbone == "openseg":
         dummy_input1 = torch.randn(1, 3, 1024, 2048)
         # dummy_input1 = torch.randn(1, 3, 384, 384)

@@ -1258,7 +1258,7 @@ def grid_search(task_name, split_point):
         net_wth_eehead, net_wth_finalhead = convert_resnet.load_resnet(split_point)
         for p_thres in np.arange(0, 1.1, 0.1):
             metric_eehead, metric_finalhead, moveon_ratio, metric_avg = convert_resnet.eval_resnet(net_wth_eehead, net_wth_finalhead, p_thres)
-            with open('/home/slzhang/projects/ETBA/Train/imagenet_results_{}.csv'.format(split_point), 'a+') as f:
+            with open('/home/slzhang/projects/ETBA/Train/conversion_results/imagenet_results_{}.csv'.format(split_point), 'a+') as f:
                 writer = csv.writer(f)
                 writer.writerow([p_thres, metric_eehead, metric_finalhead, moveon_ratio, metric_avg])
 
@@ -1267,7 +1267,7 @@ def grid_search(task_name, split_point):
         for p_thres in np.arange(0.6, 0.84, 0.02):
             for n_thres in [5, 10, 15, 20, 30, 50]:
                 moveon_ratio, metric_avg = convert_posenet.eval_posenet(net, p_thres, n_thres)
-                with open('/home/slzhang/projects/ETBA/Train/posenet_results_{}.csv'.format(split_point), 'a+') as f:
+                with open('/home/slzhang/projects/ETBA/Train/conversion_results/posenet_results_{}.csv'.format(split_point), 'a+') as f:
                     writer = csv.writer(f)
                     writer.writerow([p_thres, n_thres, moveon_ratio, metric_avg])
 
@@ -1276,7 +1276,7 @@ def grid_search(task_name, split_point):
         for p_thres in np.arange(1, 10, 1):
             for n_thres in [100000, 200000, 500000, 1000000]:
                 metric_eehead, metric_finalhead, moveon_ratio, metric_avg = convert_resnet.eval_resnet(net, p_thres, n_thres)
-                with open('/home/slzhang/projects/ETBA/Train/openseg_results_{}.csv'.format(split_point), 'a+') as f:
+                with open('/home/slzhang/projects/ETBA/Train/conversion_results/openseg_results_{}.csv'.format(split_point), 'a+') as f:
                     writer = csv.writer(f)
                     writer.writerow([p_thres, n_thres, metric_eehead, metric_finalhead, moveon_ratio, metric_avg])
 
@@ -1286,7 +1286,7 @@ def grid_search(task_name, split_point):
         for p_thres in np.arange(0, 1.1, 0.1):
             inst.p_thres = p_thres
             metric_eehead, metric_finalhead, moveon_ratio, metric_avg = inst.eval_bert(eval_eehead, eval_finalhead)
-            with open('/home/slzhang/projects/ETBA/Train/mrpc_results_{}.csv'.format(split_point), 'a+') as f:
+            with open('/home/slzhang/projects/ETBA/Train/conversion_results/mrpc_results_{}.csv'.format(split_point), 'a+') as f:
                 writer = csv.writer(f)
                 writer.writerow([p_thres, metric_eehead, metric_finalhead, moveon_ratio, metric_avg])
 
@@ -1294,8 +1294,8 @@ def grid_search(task_name, split_point):
         pass
 
 if __name__ == '__main__':
-    task = 'Wav2Vec2'
-    mode = 'test'
+    task = 'imagenet'
+    mode = 'tes'
 
     if mode == 'test':
         if task == 'posenet':

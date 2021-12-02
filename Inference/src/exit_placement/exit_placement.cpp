@@ -358,7 +358,6 @@ std::vector<float> Profiler::infer(const bool separate_or_not, const size_t& num
         CUDACHECK(cudaEventRecord(s1_end, stream_));
         CUDACHECK(cudaEventSynchronize(s1_end));
 
-
         /* Below is the module for check */
         std::shared_ptr<samplesCommon::ManagedBuffer> exitPtr = buffer_s1.getImmediateBuffer(2);
         float* exitPtr_device = static_cast<float*>(exitPtr->deviceBuffer.data());
@@ -366,7 +365,7 @@ std::vector<float> Profiler::infer(const bool separate_or_not, const size_t& num
         int *copy_list;
         int size = (int) batch_size_s1_*sizeof(int);
         cudaMalloc(&copy_list, size);
-        max_reduction_resnet<<<32, 1000>>> (exitPtr_device, copy_list);
+        max_reduction_r(exitPtr_device, copy_list);
 
         /*
         CUDACHECK(cudaEventRecord(check_start, stream_));
