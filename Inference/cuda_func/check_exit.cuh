@@ -8,5 +8,6 @@ void cls_copy_list(float* exitSrc, int* output_vector, float threshold, int leng
 void max_reduction_r(float *v, int *v_r);
 void max_reduction_p(float *v, float *v_r);
 void max_reduction_o(float *v, float *v_r);
+void generate_fake_copy_list(int last_stage_length, int length_copy, int *fake_copy_list);
 
 #endif

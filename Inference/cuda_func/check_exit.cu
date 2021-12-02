@@ -2,6 +2,7 @@
 #include <thrust/extrema.h>
 #include <thrust/device_ptr.h>
 #include <iostream>
+#include <curand_kernel.h>
 
 void cls_copy_list(float* exitSrc, int* output_vector, float threshold, int length, int batch_size)
 {
@@ -110,3 +111,32 @@ __global__ void max_reduction_openseg(float *v, float *v_r) {
 void max_reduction_r(float *v, int *v_r) {
     max_reduction_resnet<<<32, 1000>>> (v, v_r);
 }
+
+//TODO: Below not finished.
+// __device__ void random_shuffle(int last_stage_length){
+// 	const int id  = threadIdx.x;
+// 	__shared__ int perm_shared[last_stage_length];
+// 	perm_shared[2 * id]     = 2 * id;
+// 	perm_shared[2 * id + 1] = 2 * id + 1;
+// 	__syncthreads();
+
+// 	unsigned int shift = 1;
+// 	unsigned int pos = id * 2;  
+// 	while(shift <= last_stage_length/2)
+// 	{
+// 		if (curand(&curand_state) & 1) swap(perm_shared, pos, pos + shift);
+// 		shift = shift << 1;
+// 		pos = (pos & ~shift) | ((pos & shift) >> 1);
+// 		__syncthreads();
+// 	}
+// }
+
+// void generate_fake_copy_list(int last_stage_length, int length_copy, int *fake_copy_list) {
+// 	// for (int i = 0; i < length_copy; i++) {
+// 	std::cout << "fake1" << std::endl;
+// 	random_shuffle<<<1, last_stage_length>>> (last_stage_length)
+// 	fake_copy_list[0] = 2;
+// 	fake_copy_list[1] = 4;
+// 	std::cout << "fake2" << std::endl;
+// 	// }
+// }

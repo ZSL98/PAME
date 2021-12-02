@@ -359,6 +359,7 @@ std::vector<float> Profiler::infer(const bool separate_or_not, const size_t& num
         CUDACHECK(cudaEventSynchronize(s1_end));
 
         /* Below is the module for check */
+        // On the GPU side
         std::shared_ptr<samplesCommon::ManagedBuffer> exitPtr = buffer_s1.getImmediateBuffer(2);
         float* exitPtr_device = static_cast<float*>(exitPtr->deviceBuffer.data());
 
@@ -367,10 +368,9 @@ std::vector<float> Profiler::infer(const bool separate_or_not, const size_t& num
         cudaMalloc(&copy_list, size);
         max_reduction_r(exitPtr_device, copy_list);
 
-        /*
+
+        /* A very inefficient check module on GPU
         CUDACHECK(cudaEventRecord(check_start, stream_));
-        std::shared_ptr<samplesCommon::ManagedBuffer> exitPtr = buffer_s1.getImmediateBuffer(2);
-        float* exitPtr_ = static_cast<float*>(exitPtr->deviceBuffer.data());
 
         float threshold = 0.5;
         int length = 1000;
@@ -384,23 +384,28 @@ std::vector<float> Profiler::infer(const bool separate_or_not, const size_t& num
         */
 
         /* Code for generate the copy list randomly */
+        int next_batch_size = batch_size_s2_;
+        if (overload) {
+            next_batch_size = batch_size_s1_;
+        }
+        int *fake_copy_list;
+        cudaMalloc(&fake_copy_list, (int) next_batch_size*sizeof(int));
 
+        // Generate on the CPU side and copy to the GPU
         std::vector<int> full_copy_list;
         for(int i = 0; i < batch_size_s1_; ++i)
         {
             full_copy_list.push_back(i);
         }
         random_shuffle(full_copy_list.begin(), full_copy_list.end());
-        std::vector<int> fake_copy_list;
-
-        int next_batch_size = batch_size_s2_;
-        if (overload) {
-            next_batch_size = batch_size_s1_;
-        }
-
+        int fake_copy_list_host[next_batch_size];
         for(int i = 0; i < next_batch_size ; ++i){
-            fake_copy_list.push_back(full_copy_list[i]);
+            fake_copy_list_host[i] = full_copy_list[i];
         }
+        cudaMemcpy(fake_copy_list, fake_copy_list_host, (int) next_batch_size*sizeof(int), cudaMemcpyHostToDevice);
+
+        // TODO: Generate on the GPU side
+        // generate_fake_copy_list(batch_size_s1_, next_batch_size, fake_copy_list);
 
         if (model_name == "bert"){
             size_t sequence_length = 7;
@@ -417,7 +422,7 @@ std::vector<float> Profiler::infer(const bool separate_or_not, const size_t& num
         }
         std::shared_ptr<samplesCommon::ManagedBuffer> srcPtr = buffer_s1.getImmediateBuffer(1);
         samplesCommon::BufferManager buffer_s2(mEngine_s2, batch_size_s1_,
-                                srcPtr, &fake_copy_list, copy_method);
+                                srcPtr, fake_copy_list, next_batch_size, copy_method);
         auto status_s2 = mContext_s2->enqueueV2(buffer_s2.getDeviceBindings().data(), stream_, nullptr);
         if (!status_s2) {
             std::cout << "Error when inferring S2 model" << std::endl;

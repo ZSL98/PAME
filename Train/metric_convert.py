@@ -164,6 +164,7 @@ class convert_resnet:
 
         with torch.no_grad():
             end = time.time()
+            moveon_dict = dict()
             for i, (images, target) in enumerate(val_loader):
 
                 # compute output
@@ -185,6 +186,7 @@ class convert_resnet:
                 p_ratio = matrices[5]
                 m_acc = matrices[6]
                 m_ratio = matrices[7]
+                moveon_dict[i] = matrices[8]
 
                 p_acc = p_acc.cuda()
                 p_ratio = p_ratio.cuda()
@@ -267,6 +269,7 @@ class convert_resnet:
             res.append(pass_cnt/batch_size)
             res.append(moveon_acc)
             res.append(moveon_cnt/batch_size)
+            res.append(moveon_indicator)
             return res
 
 class convert_posenet:
@@ -1313,7 +1316,7 @@ if __name__ == '__main__':
             inst.load_Wav2Vec2()
     # TODO: For bert, run "python metric_convert.py --output_dir /home/slzhang/projects/ETBA/Train/bert_train/models/tmp --split_point 5 --model_name_or_path bert-base-cased --task_name mrpc --do_eval
 
-    grid_search(task, 5)
+    grid_search(task, 14)
 
 
 
