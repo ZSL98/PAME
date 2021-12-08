@@ -16,9 +16,9 @@
     "bs_num": 100,
     "test_iter": 1,
     "copy_method": 1,
-    "seperate_or_not": true,
+    "seperate_or_not": false,
     "begin_point": 0,
-    "split_point": 1,
+    "split_point": 10,
     "termi_point": 30,
     "fp16": false
   }

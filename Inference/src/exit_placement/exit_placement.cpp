@@ -235,20 +235,20 @@ bool Profiler::construct_s1(
             size_t sequence_length = 7;
 
             nvinfer1::Dims min_dims_0 = input_dims_s2_0;
-            min_dims_0.d[0] = batch_size_s2_;
+            min_dims_0.d[0] = batch_size_s1_;
             min_dims_0.d[1] = sequence_length;
             nvinfer1::Dims opt_dims_0 = input_dims_s2_0;
-            opt_dims_0.d[0] = batch_size_s2_;
+            opt_dims_0.d[0] = batch_size_s1_;
             opt_dims_0.d[1] = sequence_length;
             nvinfer1::Dims max_dims_0 = input_dims_s2_0;
             max_dims_0.d[0] = batch_size_s1_;
             max_dims_0.d[1] = sequence_length;
 
             nvinfer1::Dims min_dims_1 = input_dims_s2_1;
-            min_dims_1.d[0] = batch_size_s2_;
+            min_dims_1.d[0] = batch_size_s1_;
             min_dims_1.d[1] = sequence_length;
             nvinfer1::Dims opt_dims_1 = input_dims_s2_1;
-            opt_dims_1.d[0] = batch_size_s2_;
+            opt_dims_1.d[0] = batch_size_s1_;
             opt_dims_1.d[1] = sequence_length;
             nvinfer1::Dims max_dims_1 = input_dims_s2_1;
             max_dims_1.d[0] = batch_size_s1_;
