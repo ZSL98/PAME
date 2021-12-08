@@ -189,6 +189,7 @@ def model_export_func(model_name, begin_point, split_point, exit_type=False):
     s2_model.eval()
 
     # tmp_model = SpatialOCRNet()
+    # tmp_model = model
     # s2_input_names = ["input"]
     # # s2_output_names = ["output_dsn", "output"]
     # s2_output_names = ["output"]
@@ -485,4 +486,4 @@ def model_export_func_backup(model_name, split_point_s1, split_point_s2, split_p
 
 
 if __name__ == '__main__':
-    model_export_func('Wav2Vec2', 0, 2)
+    model_export_func('resnet', 0, 2)

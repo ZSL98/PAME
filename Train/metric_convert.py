@@ -578,8 +578,15 @@ class convert_posenet:
 
 
 class convert_openseg:
+    def __init__(self, split_point, batch_size, last_exit) -> None:
+        super().__init__()
+        self.split_point = split_point
+        self.p_thres = 0.75
+        self.n_thres = 30
+        self.last_exit = last_exit
+        self.batch_size = batch_size
 
-    def load_openseg(split_point):
+    def load_openseg(self):
         # load the backbone of the network with dual-heads
 
         net_wth_finalhead = torch.load("/home/slzhang/projects/ETBA/Train/openseg/checkpoints/cityscapes/ocrnet_resnet101_s33_latest.pth")
@@ -626,11 +633,12 @@ class convert_openseg:
         net_wth_dualheads.load_state_dict(dict_dualhead)
         return net_wth_dualheads
 
-    def eval_openseg(net, p_thres, n_thres):
+    def eval_openseg(self, net):
         net = net.cuda()
         net.eval()
         config = Configer(configs="/home/slzhang/projects/ETBA/Train/openseg/configs/cityscapes/R_101_D_8_with_exit.json")
         abs_data_dir = "/home/slzhang/projects/ETBA/Train/openseg/data/cityscapes"
+        config.update(["val", "batch_size"], self.batch_size)
         config.update(["data", "data_dir"], abs_data_dir)
         config.add(["gpu"], [0, 1, 2, 3])
         config.add(["network", "gathered"], "n")
@@ -649,13 +657,24 @@ class convert_openseg:
         val_loader = data_loader.get_valloader()
         evaluator = get_evaluator(config, etrainer)
 
-        moveon_ratio = AverageMeter('Ratio@Pass', ':6.2f')
+        self.moveon_ratio = AverageMeter('Ratio@Pass', ':6.2f')
         mIoU = AverageMeter('mIoU@Avg', ':6.2f')
         mIoU_s1 = AverageMeter('mIoU_s1@Avg', ':6.2f')
         mIoU_s2 = AverageMeter('mIoU_s2@Avg', ':6.2f')
 
-        for j, data_dict in enumerate(val_loader):
+        moveon_dict = dict()
+        self.hist_data = []
+        if self.last_exit == None:
+            last_moveon_dict = dict()
+        else:
+            with open('./moveon_dict/openseg_exit_e{}_b{}.pkl'.format(self.last_exit, self.batch_size), 'rb') as f:
+                last_moveon_dict = pickle.load(f)
+
+        for i, data_dict in enumerate(val_loader):
             (inputs, targets), batch_size = data_helper.prepare_data(data_dict)
+            if self.last_exit == None:
+                last_moveon_dict[i] = [1]*len(targets)
+
             with torch.no_grad():
                 outputs = net(*inputs)
                 if isinstance(outputs, torch.Tensor):
@@ -663,14 +682,14 @@ class convert_openseg:
                 metas = data_dict["meta"]
                 output_s1 = outputs[1].permute(0, 2, 3, 1)[0].cpu().numpy()
                 output_s2 = outputs[3].permute(0, 2, 3, 1)[0].cpu().numpy()
-                final_output = convert_openseg.validate_openseg(p_thres, n_thres, output_s1, output_s2, moveon_ratio)
+                final_output = self.validate_openseg(output_s1, output_s2)
 
                 labelmap = np.argmax(final_output, axis=-1)
                 ori_target = metas[0]['ori_target']
                 RunningScore = rslib.RunningScore(config)
                 RunningScore.update(labelmap[None], ori_target[None])
                 rs = RunningScore.get_mean_iou()
-                if moveon_ratio.val == 0:
+                if self.moveon_ratio.val == 0:
                     mIoU_s1.update(rs)
                 else:
                     mIoU_s2.update(rs)
@@ -679,25 +698,24 @@ class convert_openseg:
                 print("mIoU: {}".format(mIoU.avg))
                 print("mIoU_s1: {}".format(mIoU_s1.avg))
                 print("mIoU_s2: {}".format(mIoU_s2.avg))
-                print("moveon_ratio: {}".format(moveon_ratio.avg))
+                print("moveon_ratio: {}".format(self.moveon_ratio.avg))
 
-        return mIoU_s1.avg, mIoU_s2.avg, moveon_ratio.avg, mIoU.avg
+        return mIoU_s1.avg, mIoU_s2.avg, self.moveon_ratio.avg, mIoU.avg
 
-    def validate_openseg(p_thres, n_thres, 
-                        output_s1, output_s2, moveon_ratio):
+    def validate_openseg(self, output_s1, output_s2):
         # Shape of output_s1/output_s2: (1024, 2048, 19)
-        pixel_threshold = p_thres
-        num_threshold = n_thres
+        pixel_threshold = self.p_thres
+        num_threshold = self.n_thres
         pixel_confidence = np.amax(output_s1, axis=-1)
         # print(pixel_confidence)
         pixel_over_threshold = pixel_confidence > pixel_threshold
         num_pixel_over_threshold = pixel_over_threshold.sum()
         # print(num_pixel_over_threshold)
         if num_pixel_over_threshold > num_threshold:
-            moveon_ratio.update(0, 1)
+            self.moveon_ratio.update(0, 1)
             return output_s1
         else:
-            moveon_ratio.update(1, 1)
+            self.moveon_ratio.update(1, 1)
             return output_s2
 
 class convert_bert:
@@ -1375,7 +1393,7 @@ def grid_search(task_name, split_point):
             writer.writerow(['p_thres', 'n_thres', 'metric_eehead', 'metric_finalhead', 'moveon_ratio', 'metric_avg'])
 
         inst = convert_posenet(split_point=6, batch_size=128, last_exit=None)
-        for p_thres in np.arange(0.6, 0.84, 0.02):
+        for p_thres in np.arange(0.6, 0.85, 0.05):
             for n_thres in [5, 10, 15, 20, 30, 50]:
                 inst.p_thres = p_thres
                 inst.n_thres = n_thres
@@ -1394,13 +1412,26 @@ def grid_search(task_name, split_point):
 
     elif task_name == 'openseg':
         print('Grid searcing for openseg...')
-        net = convert_openseg.load_posenet(split_point)
+        with open('/home/slzhang/projects/ETBA/Train/conversion_results/openseg_results_{}.csv'.format(split_point), 'a+') as f:
+            writer = csv.writer(f)
+            writer.writerow(['p_thres', 'n_thres', 'metric_eehead', 'metric_finalhead', 'moveon_ratio', 'metric_avg'])
+
+        inst = convert_openseg(split_point=split_point, batch_size=8, last_exit=None)
+        net = inst.load_openseg()
         for p_thres in np.arange(1, 10, 1):
             for n_thres in [100000, 200000, 500000, 1000000]:
-                metric_eehead, metric_finalhead, moveon_ratio, metric_avg = convert_resnet.eval_resnet(net, p_thres, n_thres)
+                metric_eehead, metric_finalhead, moveon_ratio, metric_avg = inst.eval_openseg(net)
+                print('p_thres: ' + str(p_thres) + '  n_thres: ' + str(n_thres) + '  moveon_ratio: ' + str(moveon_ratio) +'  metric_avg: ' + str(metric_avg))
                 with open('/home/slzhang/projects/ETBA/Train/conversion_results/openseg_results_{}.csv'.format(split_point), 'a+') as f:
                     writer = csv.writer(f)
                     writer.writerow([p_thres, n_thres, metric_eehead, metric_finalhead, moveon_ratio, metric_avg])
+
+        result = pd.read_csv('/home/slzhang/projects/ETBA/Train/conversion_results/opoenseg_results_{}.csv'.format(split_point))
+        result_satisfied = result[result['metric_avg']>80]
+        opt_p_thres = result_satisfied[result_satisfied['moveon_ratio'] == result_satisfied['moveon_ratio'].min()]['p_thres']
+        opt_n_thres = result_satisfied[result_satisfied['moveon_ratio'] == result_satisfied['moveon_ratio'].min()]['n_thres']
+
+        return opt_p_thres[0], opt_n_thres[0]
 
     elif task_name == 'mrpc':
         inst = convert_bert(split_point=split_point, task_name=task_name)
@@ -1416,7 +1447,7 @@ def grid_search(task_name, split_point):
         pass
 
 if __name__ == '__main__':
-    task = 'posenet'
+    task = 'openseg'
     mode = 'test'
 
     if mode == 'test':
@@ -1437,8 +1468,13 @@ if __name__ == '__main__':
             inst.eval_posenet()
 
         elif task == 'openseg':
-            net = convert_openseg.load_openseg(20)
-            convert_openseg.eval_openseg(net, 8, 0)
+            split_point = 15
+            opt_p_thres, opt_n_thres = grid_search(task, split_point)
+            inst = convert_openseg(split_point=split_point, batch_size=128, last_exit=None)
+            inst.p_thres = opt_p_thres
+            inst.n_thres = opt_n_thres
+            inst.eval_openseg()
+
         elif task == 'bert':
             inst = convert_bert(split_point=8, task_name='mrpc')
             eval_eehead, eval_finalhead = inst.load_bert()
