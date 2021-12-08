@@ -53,8 +53,8 @@ private:
     bool fp16_{false};
     bool int8_{false};
 
-    cudaStream_t stream_;
-    cudaStream_t stream_aux;
+    cudaStream_t stream_0;
+    cudaStream_t stream_1;
     cudaEvent_t infer_start;
     cudaEvent_t s1_end;
     cudaEvent_t s2_end;

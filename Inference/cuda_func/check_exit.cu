@@ -108,8 +108,8 @@ __global__ void max_reduction_openseg(float *v, float *v_r) {
 	}
 }
 
-void max_reduction_r(float *v, int *v_r) {
-    max_reduction_resnet<<<32, 1000>>> (v, v_r);
+void max_reduction_r(float *v, int *v_r, const cudaStream_t& stream = 0) {
+    max_reduction_resnet<<<32, 1000, 0, stream>>> (v, v_r);
 }
 
 //TODO: Below not finished.

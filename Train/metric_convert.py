@@ -9,12 +9,14 @@ import numpy as np
 import torch
 import random
 import argparse
+import pickle
 from typing import Any, Dict, List, Optional, Union
 import torchvision.transforms as transforms
 from tensorboardX import SummaryWriter
 import torch.nn as nn
 import torch.nn.parallel
 import torch.backends.cudnn as cudnn
+import matplotlib.pyplot as plt
 
 
 ################### Import packages for resnet ####################
@@ -109,11 +111,17 @@ logger = logging.getLogger(__name__)
 # so I simply use net_wth_eehead and net_wth_finalhead to convert metrics.
 
 class convert_resnet:
+    def __init__(self, split_point, batch_size, last_exit) -> None:
+        super().__init__()
+        self.split_point = split_point
+        self.p_thres = 0.7
+        self.last_exit = last_exit
+        self.batch_size = batch_size
         
-    def load_resnet(split_point):
+    def load_resnet(self):
         net_wth_finalhead = models.resnet101(pretrained=True)
-        net_wth_eehead_dict = torch.load("/home/slzhang/projects/ETBA/Train/Mytrain/models/checkpoint.pth.tar."+str(split_point))
-        net_wth_eehead = partial_resnet(start_point=split_point, end_point=split_point, simple_exit=False)
+        net_wth_eehead_dict = torch.load("/home/slzhang/projects/ETBA/Train/Mytrain/models/checkpoint.pth.tar."+str(self.split_point))
+        net_wth_eehead = partial_resnet(start_point=self.split_point, end_point=self.split_point, simple_exit=False)
 
         dict_new = OrderedDict()
         for k,v in net_wth_eehead.state_dict().items():
@@ -123,7 +131,7 @@ class convert_resnet:
 
         return net_wth_eehead, net_wth_finalhead
 
-    def eval_resnet(net_wth_eehead, net_wth_finalhead, p_thres):
+    def eval_resnet(self, net_wth_eehead, net_wth_finalhead):
         valdir = '/home/slzhang/projects/Shallow-Deep-Networks-backup/data/imagenet/ILSVRC/Data/CLS-LOC/val'
         normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                         std=[0.229, 0.224, 0.225])
@@ -134,7 +142,7 @@ class convert_resnet:
                 transforms.ToTensor(),
                 normalize,
             ])),
-            batch_size=512, shuffle=False,
+            batch_size=self.batch_size, shuffle=False,
             num_workers=4, pin_memory=True)
 
         batch_time = AverageMeter('Time', ':6.3f')
@@ -165,7 +173,18 @@ class convert_resnet:
         with torch.no_grad():
             end = time.time()
             moveon_dict = dict()
+
+            self.hist_data = []
+            if self.last_exit == None:
+                last_moveon_dict = dict()
+            else:
+                with open('./moveon_dict/resnet_exit_e{}_b{}.pkl'.format(self.last_exit, self.batch_size), 'rb') as f:
+                    last_moveon_dict = pickle.load(f)
+
             for i, (images, target) in enumerate(val_loader):
+
+                if self.last_exit == None:
+                    last_moveon_dict[i] = [1]*len(target)
 
                 # compute output
                 images = images.cuda()
@@ -177,7 +196,7 @@ class convert_resnet:
                 loss = criterion(exit_output, target)
 
                 # measure accuracy and record loss
-                matrices = convert_resnet.validate_resnet(p_thres, exit_output, output, target, topk=(1, 5))
+                matrices = self.validate_resnet(exit_output, output, target, torch.tensor(last_moveon_dict[i], dtype=torch.bool).cuda(), topk=(1, 5))
                 acc1 = matrices[0]
                 acc5 = matrices[2]
                 acc1_final = matrices[1]
@@ -212,29 +231,38 @@ class convert_resnet:
                     # wandb.log({"acc1": acc1[0], "acc5": acc5[0], "pass_acc": p_acc, "pass_ratio": p_ratio})
                     progress.display(i)
 
+            if self.last_exit == None:
+                with open('./moveon_dict/resnet_exit_e{}_b{}.pkl'.format(self.split_point, self.batch_size), "wb") as f:
+                    pickle.dump(moveon_dict, f)
+            else:
+                with open('./moveon_dict/resnet_exit_e{}_l{}_b{}.pkl'.format(self.split_point, self.last_exit, self.batch_size), "wb") as f:
+                    pickle.dump(moveon_dict, f)
+
+            plt.hist(self.hist_data)
+            plt.savefig("./hist_data.png")
             print(' * Acc@1 {top1.avg:.3f} Acc@5 {top5.avg:.3f}'
                 .format(top1=top1, top5=top5))
 
         return pass_acc1.avg.cpu().item(), moveon_acc1.avg.cpu().item(), moveon_ratio1.avg.cpu().item(), avg_acc1.avg.cpu().item()
 
-    def validate_resnet(p_thres, output, final_output, target, topk=(1,)):
+    def validate_resnet(self, output, final_output, target, last_moveon_list, topk=(1,)):
         """Computes the accuracy over the k top predictions for the specified values of k"""
         with torch.no_grad():
             maxk = max(topk)
             batch_size = target.size(0)
 
-            confidence = p_thres
+            confidence = self.p_thres
             m = nn.Softmax(dim=1)
             softmax_output = m(output)
             softmax_final_output = m(final_output)
 
-            pass_indicator = torch.max(softmax_output, 1)[0] > confidence
-            moveon_indicator = ~pass_indicator
+            pass_indicator = (torch.max(softmax_output, 1)[0] > confidence) & last_moveon_list
+            moveon_indicator = (torch.max(softmax_output, 1)[0] <= confidence) & last_moveon_list
             pass_cnt = sum(pass_indicator)
             moveon_cnt = sum(moveon_indicator)
-            correct_indicator = torch.max(softmax_output, 1)[1] == target
+            correct_indicator = (torch.max(softmax_output, 1)[1] == target) & last_moveon_list
             # final_correct_indicator = torch.max(softmax_final_output + softmax_output, 1)[1] == target
-            final_correct_indicator = torch.max(softmax_final_output, 1)[1] == target
+            final_correct_indicator = (torch.max(softmax_final_output, 1)[1] == target) & last_moveon_list
             pass_correct_indicator = pass_indicator & correct_indicator
             moveon_correct_indicator = moveon_indicator & final_correct_indicator
             pass_correct_cnt = sum(pass_correct_indicator)
@@ -247,8 +275,11 @@ class convert_resnet:
 
             if moveon_cnt != 0:
                 moveon_acc = moveon_correct_cnt.float().mul_(100.0 / moveon_cnt)
+                tmp = moveon_cnt/sum(last_moveon_list)
+                self.hist_data.append(tmp.cpu().item())
             else:
                 moveon_acc = torch.tensor(0.0)
+                self.hist_data.append(0)
 
             _, pred = output.topk(maxk, 1, True, True)
             pred = pred.t()
@@ -266,17 +297,24 @@ class convert_resnet:
                 res.append(correct_f_k.mul_(100.0 / batch_size))            
 
             res.append(pass_acc)
-            res.append(pass_cnt/batch_size)
+            res.append(pass_cnt/sum(last_moveon_list))
             res.append(moveon_acc)
-            res.append(moveon_cnt/batch_size)
+            res.append(moveon_cnt/sum(last_moveon_list))
             res.append(moveon_indicator)
             return res
 
 class convert_posenet:
+    def __init__(self, split_point, batch_size, last_exit) -> None:
+        super().__init__()
+        self.split_point = split_point
+        self.p_thres = 0.75
+        self.n_thres = 30
+        self.last_exit = last_exit
+        self.batch_size = batch_size
 
-    def load_posenet(split_point):
+    def load_posenet(self):
         net_wth_finalhead = torch.load("/home/slzhang/projects/ETBA/Train/pose_estimation/models/pytorch/pose_mpii/pose_resnet_101_384x384.pth.tar")
-        net_wth_eehead = torch.load("/home/slzhang/projects/ETBA/Train/pose_estimation/output/mpii/pose_resnet_101/384x384_d256x3_adam_lr1e-3/checkpoint.pth.tar."+str(split_point))
+        net_wth_eehead = torch.load("/home/slzhang/projects/ETBA/Train/pose_estimation/output/mpii/pose_resnet_101/384x384_d256x3_adam_lr1e-3/checkpoint.pth.tar."+str(self.split_point))
 
         # for k,v in net_wth_eehead['state_dict'].items():
         #     print(k)
@@ -290,7 +328,7 @@ class convert_posenet:
         torch.backends.cudnn.enabled = config.CUDNN.ENABLED
 
         net_wth_dualheads = eval(config.MODEL.NAME+'.get_pose_net_with_exit')(
-            config, is_train=True, start_point = split_point
+            config, is_train=True, start_point = self.split_point
         )
 
         dict_finalhead = net_wth_finalhead.copy()
@@ -316,18 +354,19 @@ class convert_posenet:
         net_wth_dualheads.load_state_dict(dict_dualhead)
         return net_wth_dualheads
 
-    def eval_posenet(net, p_thres, n_thres):
-        net = net.cuda()
-        net.eval()
+    def eval_posenet(self):
+        self.net = self.load_posenet()
+        self.net = self.net.cuda()
+        self.net.eval()
 
         logger, final_output_dir, tb_log_dir = create_logger(
         config, "/home/slzhang/projects/ETBA/Train/pose_estimation/experiments/mpii/resnet101/384x384_d256x3_adam_lr1e-3.yaml", 'train')
 
         gpus = [int(i) for i in config.GPUS.split(',')]
-        net = torch.nn.DataParallel(net, device_ids=gpus).cuda()
+        self.net = torch.nn.DataParallel(self.net, device_ids=gpus).cuda()
         normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                         std=[0.229, 0.224, 0.225])
-        valid_dataset = eval('dataset.'+config.DATASET.DATASET)(
+        self.valid_dataset = eval('dataset.'+config.DATASET.DATASET)(
             config,
             config.DATASET.ROOT,
             config.DATASET.TEST_SET,
@@ -337,34 +376,35 @@ class convert_posenet:
                 normalize,
             ])
         )
-        valid_loader = torch.utils.data.DataLoader(
-            valid_dataset,
-            batch_size=config.TEST.BATCH_SIZE*len(gpus),
+        self.valid_loader = torch.utils.data.DataLoader(
+            self.valid_dataset,
+            # batch_size=config.TEST.BATCH_SIZE*len(gpus),
+            batch_size=self.batch_size,
             shuffle=False,
             num_workers=config.WORKERS,
             pin_memory=True
         )
 
-        criterion = DistillationBasedLoss(C=0.5, maxprob = 0.5,
+        self.criterion = DistillationBasedLoss(C=0.5, maxprob = 0.5,
             use_target_weight=config.LOSS.USE_TARGET_WEIGHT
         ).cuda()
 
-        moveon_ratio, metric_avg = convert_posenet.validate_posenet(p_thres, n_thres, config, valid_loader, valid_dataset, net,
-                                    criterion, final_output_dir)
+        acc_pass, acc_moveon, moveon_ratio, metric_avg = self.validate_posenet(config, final_output_dir)
 
-        return moveon_ratio, metric_avg
+        return acc_pass, acc_moveon, moveon_ratio, metric_avg
 
-    def validate_posenet(p_thres, n_thres, 
-                        config, val_loader, val_dataset, model, criterion, output_dir, writer_dict=None):
+    def validate_posenet(self, config, output_dir, writer_dict=None):
         batch_time = AverageMeter('batch_time', ':6.2f')
         losses = AverageMeter('losses', ':6.2f')
         acc = AverageMeter('acc', ':6.2f')
+        acc_pass = AverageMeter('acc@Pass', ':6.2f')
+        acc_moveon = AverageMeter('acc@Moveon', ':6.2f')
         moveon_ratio = AverageMeter('Ratio@Pass', ':6.2f')
 
         # switch to evaluate mode
-        model.eval()
+        self.net.eval()
 
-        num_samples = len(val_dataset)
+        num_samples = len(self.valid_dataset)
         all_preds = np.zeros((num_samples, config.MODEL.NUM_JOINTS, 3),
                             dtype=np.float32)
         all_boxes = np.zeros((num_samples, 6))
@@ -374,20 +414,32 @@ class convert_posenet:
         idx = 0
         with torch.no_grad():
             end = time.time()
-            for i, (input, target, target_weight, meta) in enumerate(val_loader):
+            moveon_dict = dict()
+            hist_data = []
+            if self.last_exit == None:
+                last_moveon_dict = dict()
+            else:
+                with open('./moveon_dict/posenet_exit_e{}_b{}.pkl'.format(self.last_exit, self.batch_size), 'rb') as f:
+                    last_moveon_dict = pickle.load(f)
+
+            for i, (input, target, target_weight, meta) in enumerate(self.valid_loader):
                 # compute output
-                output, exit_output = model(input)
+                if self.last_exit == None:
+                    last_moveon_dict[i] = [1]*len(target)
+
+                moveon_dict[i] = []
+                output, exit_output = self.net(input)
                 if config.TEST.FLIP_TEST:
                     # this part is ugly, because pytorch has not supported negative index
                     # input_flipped = model(input[:, :, :, ::-1])
                     input_flipped = np.flip(input.cpu().numpy(), 3).copy()
                     input_flipped = torch.from_numpy(input_flipped).cuda()
-                    output_flipped, exit_output_flipped = model(input_flipped)
+                    output_flipped, exit_output_flipped = self.net(input_flipped)
                     output_flipped = flip_back(output_flipped.cpu().numpy(),
-                                            val_dataset.flip_pairs)
+                                            self.valid_dataset.flip_pairs)
                     output_flipped = torch.from_numpy(output_flipped.copy()).cuda()
                     exit_output_flipped = flip_back(exit_output_flipped.cpu().numpy(),
-                                            val_dataset.flip_pairs)
+                                            self.valid_dataset.flip_pairs)
                     exit_output_flipped = torch.from_numpy(exit_output_flipped.copy()).cuda()
 
                     # feature is not aligned, shift flipped heatmap for higher accuracy
@@ -401,15 +453,33 @@ class convert_posenet:
                     output = (output + output_flipped) * 0.5
                     exit_output = (exit_output + exit_output_flipped) * 0.5
 
-                pixel_confidence = p_thres
-                num_threshold = n_thres
-                for j in range(output.shape[0]):
-                    if len(exit_output[j][exit_output[j] > pixel_confidence]) > num_threshold:
-                        moveon_ratio.update(0, 1)
-                    else:
-                        moveon_ratio.update(1, 1)
-                        exit_output[j] = output[j]
+                target = target.cuda(non_blocking=True)
+                target_weight = target_weight.cuda(non_blocking=True)
 
+                pixel_confidence = self.p_thres
+                num_threshold = self.n_thres
+                for j in range(output.shape[0]):
+                    if last_moveon_dict[i][j] == 1:
+                        if len(exit_output[j][exit_output[j] > pixel_confidence]) > num_threshold:
+                            moveon_dict[i].append(0)
+                            moveon_ratio.update(0, 1)
+                            _, avg_acc, cnt, pred = accuracy(exit_output[j].unsqueeze(0).cpu().numpy(),
+                                                target[j].unsqueeze(0).cpu().numpy())
+                            acc_pass.update(avg_acc, 1)
+                        else:
+                            moveon_dict[i].append(1)
+                            moveon_ratio.update(1, 1)
+                            # exit_output[j] = output[j]
+                            _, avg_acc, cnt, pred = accuracy(output[j].unsqueeze(0).cpu().numpy(),
+                                                target[j].unsqueeze(0).cpu().numpy())
+                            acc_moveon.update(avg_acc, 1)
+                        acc.update(avg_acc, 1)
+
+                if sum(last_moveon_dict[i]) > 0:
+                    hist_data.append(sum(moveon_dict[i])/sum(last_moveon_dict[i]))
+                else:
+                    hist_data.append(0)
+                # hist_data.append(sum(moveon_dict[i])/len(moveon_dict[i]))
                 # for j in range(output.shape[0]):
                 #     if sorted(exit_output[j])[-num_threshold] > pixel_confidence:
                 #         moveon_ratio.update(0, 1)
@@ -417,24 +487,20 @@ class convert_posenet:
                 #         moveon_ratio.update(1, 1)
                 #         exit_output[j] = output[j]                        
 
-
-                target = target.cuda(non_blocking=True)
-                target_weight = target_weight.cuda(non_blocking=True)
-
-                loss = criterion(output, exit_output, target, target_weight)
+                loss = self.criterion(output, exit_output, target, target_weight)
 
                 num_images = input.size(0)
                 # measure accuracy and record loss
                 losses.update(loss.item(), num_images)
-                _, avg_acc, cnt, pred = accuracy(exit_output.cpu().numpy(),
-                                                target.cpu().numpy())
+                # _, avg_acc, cnt, pred = accuracy(exit_output.cpu().numpy(),
+                #                                 target.cpu().numpy())
 
                 # prefix = '{}_{}'.format(os.path.join(output_dir, 'test'), 0)
                 # save_debug_images_with_exit(config, input, meta, target, pred*4, 
                 #                             output, exit_output, prefix)
                 # exit()
 
-                acc.update(avg_acc, cnt)
+                # acc.update(avg_acc, cnt)
 
                 # measure elapsed time
                 batch_time.update(time.time() - end)
@@ -461,22 +527,33 @@ class convert_posenet:
 
                 idx += num_images
 
-                if i % config.PRINT_FREQ == 0:
+                # if i % config.PRINT_FREQ == 0:
+                if i % 10 == 0:
                     # wandb.log({"acc":acc, "loss":loss})
-                    msg = 'Test: [{0}/{1}]\t' \
-                        'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t' \
-                        'Loss {loss.val:.4f} ({loss.avg:.4f})\t' \
-                        'Accuracy {acc.val:.3f} ({acc.avg:.3f})\t' \
-                        'Moveon_Ratio {moveon_ratio.val:.3f} ({moveon_ratio.avg:.3f})'.format(
-                            i, len(val_loader), batch_time=batch_time,
-                            loss=losses, acc=acc, moveon_ratio=moveon_ratio)
-                    logger.info(msg)
+                    # msg = 'Test: [{0}/{1}]\t' \
+                    #     'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t' \
+                    #     'Loss {loss.val:.4f} ({loss.avg:.4f})\t' \
+                    #     'Accuracy {acc.val:.3f} ({acc.avg:.3f})\t' \
+                    #     'Moveon_Ratio {moveon_ratio.val:.3f} ({moveon_ratio.avg:.3f})'.format(
+                    #         i, len(self.valid_loader), batch_time=batch_time,
+                    #         loss=losses, acc=acc, moveon_ratio=moveon_ratio)
+                    print('acc@Pass: {:.3f}\t acc@Moveon: {:.3f}\t Moveon@Ratio: {:.3f}\t acc: {:.3f}'.format(acc_pass.avg, acc_moveon.avg, moveon_ratio.avg, acc.avg))
+                    # logger.info(msg)
 
                     # prefix = '{}_{}'.format(os.path.join(output_dir, 'val'), i)
                     # save_debug_images(config, input, meta, target, pred*4, exit_output,
                     #                   prefix)
+            if self.last_exit == None:
+                with open('./moveon_dict/posenet_exit_e{}_b{}.pkl'.format(self.split_point, self.batch_size), "wb") as f:
+                    pickle.dump(moveon_dict, f)
+            else:
+                with open('./moveon_dict/posenet_exit_e{}_l{}_b{}.pkl'.format(self.split_point, self.last_exit, self.batch_size), "wb") as f:
+                    pickle.dump(moveon_dict, f)
 
-            name_values, perf_indicator = val_dataset.evaluate(
+            plt.hist(hist_data, bins=50)
+            plt.savefig("./hist_data.png")
+
+            name_values, perf_indicator = self.valid_dataset.evaluate(
                 config, all_preds, output_dir, all_boxes, image_path,
                 filenames, imgnums)
 
@@ -487,7 +564,7 @@ class convert_posenet:
             else:
                 _print_name_value(name_values, full_arch_name)
 
-        return moveon_ratio.avg, acc.avg
+        return acc_pass.avg, acc_moveon.avg, moveon_ratio.avg, acc.avg
 
 
 class convert_openseg:
@@ -1297,13 +1374,17 @@ def grid_search(task_name, split_point):
         pass
 
 if __name__ == '__main__':
-    task = 'imagenet'
-    mode = 'tes'
+    task = 'resnet'
+    mode = 'test'
 
     if mode == 'test':
+        if task == 'resnet':
+            inst = convert_resnet(split_point=26, batch_size=256, last_exit=12)
+            net_wth_eehead, net_wth_finalhead = inst.load_resnet()
+            inst.eval_resnet(net_wth_eehead, net_wth_finalhead)
         if task == 'posenet':
-            net = convert_posenet.load_posenet(20)
-            convert_posenet.eval_posenet(net, 0.8, 50)
+            inst = convert_posenet(split_point=6, batch_size=128, last_exit=None)
+            inst.eval_posenet()
         elif task == 'openseg':
             net = convert_openseg.load_openseg(20)
             convert_openseg.eval_openseg(net, 8, 0)
@@ -1316,7 +1397,7 @@ if __name__ == '__main__':
             inst.load_Wav2Vec2()
     # TODO: For bert, run "python metric_convert.py --output_dir /home/slzhang/projects/ETBA/Train/bert_train/models/tmp --split_point 5 --model_name_or_path bert-base-cased --task_name mrpc --do_eval
 
-    grid_search(task, 14)
+    # grid_search(task, 14)
 
 
 

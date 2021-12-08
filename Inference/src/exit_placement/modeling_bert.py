@@ -1710,6 +1710,76 @@ class BertWithExit_s1(BertPreTrainedModel):
         return s2_outputs, s1_logits
 
 
+class BertWithDualExit(BertPreTrainedModel):
+    def __init__(self, config):
+        super().__init__(config)
+
+        self.num_labels = config.num_labels
+        self.configuration_s2 = copy.deepcopy(config)
+
+        self.bert = BertModel(config)
+        classifier_dropout = config.hidden_dropout_prob
+        self.s2_pooler = BertPooler(config)
+        self.s2_dropout = nn.Dropout(classifier_dropout)
+        self.s2_classifier = nn.Linear(config.hidden_size, config.num_labels)
+
+        self.init_weights()
+
+    def add_exit(self, num_hidden_layers):
+        self.configuration_s2.num_hidden_layers = num_hidden_layers
+        self.bert_s2 = BertEncoder(self.configuration_s2)
+
+        dict_pre_trained = self.bert.state_dict().copy()
+        dict_s2 = self.bert_s2.state_dict().copy()
+
+        for k,v in self.bert.state_dict().items():
+            for k_s2,v_s2 in self.bert_s2.state_dict().items():
+                if k.split(".")[3:] == k_s2.split(".")[2:] and int(k.split(".")[2]) == int(k_s2.split(".")[1])+num_hidden_layers:
+                    dict_s2[k_s2] = dict_pre_trained[k]
+
+        self.bert_s2.load_state_dict(dict_s2)
+
+    def forward(
+        self,
+        input_ids=None,
+        attention_mask=None,
+        token_type_ids=None,
+        position_ids=None,
+        head_mask=None,
+        inputs_embeds=None,
+        labels=None,
+        output_attentions=None,
+        output_hidden_states=None,
+        return_dict=None,
+    ):
+        r"""
+        labels (:obj:`torch.LongTensor` of shape :obj:`(batch_size,)`, `optional`):
+            Labels for computing the sequence classification/regression loss. Indices should be in :obj:`[0, ...,
+            config.num_labels - 1]`. If :obj:`config.num_labels == 1` a regression loss is computed (Mean-Square loss),
+            If :obj:`config.num_labels > 1` a classification loss is computed (Cross-Entropy).
+        """
+        output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
+        output_hidden_states = (
+            output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
+        )
+        return_dict = return_dict if return_dict is not None else self.config.use_return_dict
+
+        input_shape = torch.Size([1, 7])
+        device = input_ids.device if input_ids is not None else inputs_embeds.device
+        extended_attention_mask: torch.Tensor = self.get_extended_attention_mask(attention_mask, input_shape, device)
+        s2_outputs = self.bert_s2(
+            input_ids,
+            attention_mask=extended_attention_mask,
+            head_mask=head_mask,
+            output_attentions=output_attentions,
+            output_hidden_states=output_hidden_states,
+            return_dict=return_dict,
+        )
+
+        s2_pooled_output = self.s2_pooler(s2_outputs[0])
+        s2_pooled_output = self.s2_dropout(s2_pooled_output)
+        s2_logits = self.s2_classifier(s2_pooled_output)
+        return s2_outputs, s2_logits
 
 
 class BertWithExit_s2(BertPreTrainedModel):
@@ -1727,7 +1797,7 @@ class BertWithExit_s2(BertPreTrainedModel):
 
         self.init_weights()
 
-    def add_exit(self, start_point, end_point):
+    def add_exit(self, end_point):
         self.configuration_s2.num_hidden_layers -= end_point
         self.bert_s2 = BertEncoder(self.configuration_s2)
 

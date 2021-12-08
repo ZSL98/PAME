@@ -20,3 +20,4 @@ test.cu
 mrpc
 stsb
 train_ouput*
+*.pkl
