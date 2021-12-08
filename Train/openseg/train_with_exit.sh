@@ -1,7 +1,7 @@
 # #!/bin/bash
 # exec 3>&1 4>&2
 # trap 'exec 2>&4 1>&3' 0 1 2 3
-# LOG_FILE="./log/cityscapes/train_output.log"
+# LOG_FILE="./log/cityscapes/train_output_26-30.log"
 # exec 1>${LOG_FILE} 2>&1
 
 PYTHON="/home/slzhang/miniconda/envs/fedml/bin/python"
@@ -26,7 +26,7 @@ CHECKPOINTS_NAME="ocrnet_resnet101_s"
 LOG_FILE="./log/cityscapes/${CHECKPOINTS_NAME}.log"
 PRETRAINED_MODEL="./pretrained_model/resnet101-imagenet.pth"
 
-for i in {8..9}
+for i in {26..27}
 do
     # TODO: log results
     ${PYTHON} -u main.py --configs ${CONFIGS} \

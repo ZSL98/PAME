@@ -1588,6 +1588,66 @@ class Wav2Vec2_with_exit_s1(Wav2Vec2PreTrainedModel):
 
         return s2_hidden_states, s1_logits
 
+class Wav2Vec2_with_dual_exit(Wav2Vec2PreTrainedModel):
+    def __init__(self, config):
+        super().__init__(config)
+        self.configuration_s2 = copy.deepcopy(config)
+
+        self.wav2vec2 = Wav2Vec2Model(config)
+        self.s1_dropout = nn.Dropout(config.final_dropout)
+        self.s2_dropout = nn.Dropout(config.final_dropout)
+
+        if config.vocab_size is None:
+            raise ValueError(
+                f"You are trying to instantiate {self.__class__} with a configuration that "
+                "does not define the vocabulary size of the language model head. Please "
+                "instantiate the model as follows: `Wav2Vec2ForCTC.from_pretrained(..., vocab_size=vocab_size)`."
+                "or define `vocab_size` of your model's configuration."
+            )
+        self.s2_lm_head = nn.Linear(config.hidden_size, config.vocab_size)
+
+        self.init_weights()
+
+    def add_exit(self, num_hidden_layers):
+
+        self.configuration_s2.num_hidden_layers = num_hidden_layers
+        self.wav2vec2_s2 = Wav2Vec2RawEncoder(self.configuration_s2)
+
+        dict_pre_trained = self.wav2vec2.state_dict().copy()
+        dict_s2 = self.wav2vec2_s2.state_dict().copy()
+
+        for k,v in self.wav2vec2.state_dict().items():
+            for k_s2,v_v2 in self.wav2vec2_s2.state_dict().items():
+                if k.split(".")[-3:] == k_s2.split(".")[-3:] and int(k.split(".")[2]) == int(k_s2.split(".")[1])+num_hidden_layers:
+                    dict_s2[k_s2] = dict_pre_trained[k]
+
+        self.wav2vec2_s2.load_state_dict(dict_s2)
+
+    def forward(
+        self,
+        input_values,
+        attention_mask=None,
+        output_attentions=None,
+        output_hidden_states=None,
+        return_dict=None,
+        labels=None,
+    ):
+        
+        return_dict = return_dict if return_dict is not None else self.config.use_return_dict
+
+        s2_outputs = self.wav2vec2_s2(
+            input_values, 
+            attention_mask=attention_mask,
+            output_attentions=output_attentions,
+            output_hidden_states=output_hidden_states,
+            return_dict=return_dict,
+        )
+
+        s2_hidden_states = s2_outputs[0]
+        s2_hidden_states = self.s2_dropout(s2_hidden_states)
+        s2_logits = self.s2_lm_head(s2_hidden_states)
+
+        return s2_hidden_states, s2_logits
 
 class Wav2Vec2_with_exit_s2(Wav2Vec2PreTrainedModel):
     def __init__(self, config):
@@ -1609,7 +1669,7 @@ class Wav2Vec2_with_exit_s2(Wav2Vec2PreTrainedModel):
 
         self.init_weights()
 
-    def add_exit(self, start_point, end_point):
+    def add_exit(self, end_point):
 
         self.configuration_s2.num_hidden_layers -= end_point
         self.wav2vec2_s2 = Wav2Vec2RawEncoder(self.configuration_s2)

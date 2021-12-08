@@ -75,7 +75,7 @@ class StandardEvaluator(_BaseEvaluator):
     def update_score(self, outputs, metas):
         if isinstance(outputs, torch.Tensor):
             outputs = [outputs]
-            
+
         for i in range(len(outputs[0])):
 
             ori_img_size = metas[i]['ori_img_size']

@@ -35,15 +35,21 @@ public:
       const size_t& batch_size_s1 = 1,
       const size_t& batch_size_s2 = 1,
       const int batch_num = 1,
+      const int begin_num = 1,
       const Severity severity = Severity::kWARNING);
 
     bool build_s0(std::string model_name);
     bool build_s1(std::string model_name);
     bool build_s2(std::string model_name);
     int batch_num_;
+    int begin_point_;
     size_t batch_size_s1_;
     size_t batch_size_s2_;
     std::vector<float> infer(const bool separate_or_not, const size_t& num_test,
+                             const int batch_idx, const int copy_method, const bool overload, std::string model_name);
+    std::vector<float> execute(const bool separate_or_not, const size_t& num_test,
+                             const int batch_idx, const int copy_method, const bool overload, std::string model_name);
+    std::vector<float> bert_execute(const bool separate_or_not, const size_t& num_test,
                              const int batch_idx, const int copy_method, const bool overload, std::string model_name);
 
 private:
@@ -51,7 +57,9 @@ private:
     bool fp16_{false};
     bool int8_{false};
 
-    cudaStream_t stream_;
+    cudaStream_t stream_0;
+    cudaStream_t stream_1;
+    cudaStream_t stream_2;
     cudaEvent_t infer_start;
     cudaEvent_t s1_end;
     cudaEvent_t s2_end;

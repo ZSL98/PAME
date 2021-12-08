@@ -661,16 +661,16 @@ class partial_resnet(nn.Module):
         if simple_exit:
             if self.pre_layer[1] == 0:
                 self.exit = self._make_simple_exit(64)
-                self.fc_exit = nn.Linear(64 * Bottleneck.expansion, num_classes)
+                self.fc = nn.Linear(64 * Bottleneck.expansion, num_classes)
             elif self.pre_layer[2] == 0:
                 self.exit = self._make_simple_exit(128)
-                self.fc_exit = nn.Linear(128 * Bottleneck.expansion, num_classes)
+                self.fc = nn.Linear(128 * Bottleneck.expansion, num_classes)
             elif self.pre_layer[3] == 0:
                 self.exit = self._make_simple_exit(256)
-                self.fc_exit = nn.Linear(256 * Bottleneck.expansion, num_classes)
+                self.fc = nn.Linear(256 * Bottleneck.expansion, num_classes)
             else:
                 self.exit = self._make_simple_exit(512)
-                self.fc_exit = nn.Linear(512 * Bottleneck.expansion, num_classes)
+                self.fc = nn.Linear(512 * Bottleneck.expansion, num_classes)
         else:
             if self.pre_layer[1] == 0:
                 self.exit = self._make_complex_exit(1, stride=2)
@@ -680,7 +680,7 @@ class partial_resnet(nn.Module):
                 self.exit = self._make_complex_exit(3, stride=2)
             else:
                 self.exit = self._make_complex_exit(4, stride=2)
-            self.fc_exit = nn.Linear(512 * Bottleneck.expansion, num_classes)
+            self.fc = nn.Linear(512 * Bottleneck.expansion, num_classes)
 
 
         for m in self.modules():
@@ -812,7 +812,7 @@ class partial_resnet(nn.Module):
         # x_exit = self.conv1x1_exit(x_exit)
         x_exit = self.avgpool(x_exit)
         x_exit = torch.flatten(x_exit, 1)
-        x_exit = self.fc_exit(x_exit)
+        x_exit = self.fc(x_exit)
 
         # backbone continue
         # x_c = self.post_layer1(x_fork)

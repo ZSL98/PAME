@@ -44,7 +44,7 @@ from transformers import (
 from transformers.trainer_utils import get_last_checkpoint
 from transformers.utils import check_min_version
 from transformers.utils.versions import require_version
-from modeling_bert import BertWithExit
+from modeling_bert import BertWithExit, BertWithSinglehead
 
 
 # Will error if the minimal version of Transformers is not installed. Remove at your own risks.
@@ -155,7 +155,9 @@ class ModelArguments:
     """
     Arguments pertaining to which model/config/tokenizer we are going to fine-tune from.
     """
-
+    split_point: int = field(
+        metadata={"help": "Split point"}
+    )
     model_name_or_path: str = field(
         metadata={"help": "Path to pretrained model or model identifier from huggingface.co/models"}
     )
@@ -327,7 +329,7 @@ def main():
         revision=model_args.model_revision,
         use_auth_token=True if model_args.use_auth_token else None,
     )
-    model = BertWithExit.from_pretrained(
+    model = BertWithSinglehead.from_pretrained(
         model_args.model_name_or_path,
         from_tf=bool(".ckpt" in model_args.model_name_or_path),
         config=config,
@@ -335,7 +337,7 @@ def main():
         revision=model_args.model_revision,
         use_auth_token=True if model_args.use_auth_token else None,
     )
-    model.add_exit(7)
+    model.add_exit(model_args.split_point)
     # model = AutoModelForSequenceClassification.from_pretrained(
     #     model_args.model_name_or_path,
     #     from_tf=bool(".ckpt" in model_args.model_name_or_path),
@@ -518,6 +520,10 @@ def main():
 
         for eval_dataset, task in zip(eval_datasets, tasks):
             metrics = trainer.evaluate(eval_dataset=eval_dataset)
+            # predictions = trainer.predict(eval_dataset, metric_key_prefix="predict").predictions
+            # predictions = np.squeeze(predictions) if is_regression else np.argmax(predictions, axis=1)
+            # print(predictions)
+            # print(eval_dataset["label"])
 
             max_eval_samples = (
                 data_args.max_eval_samples if data_args.max_eval_samples is not None else len(eval_dataset)

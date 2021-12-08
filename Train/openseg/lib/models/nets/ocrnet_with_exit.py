@@ -81,15 +81,20 @@ class SpatialOCRNet_with_only_exit(nn.Module):
         # dict_new = self.state_dict().copy()
         dict_new = OrderedDict()        
         
-        # copy the backbone parameters and the head parameters
         for k,v in self.state_dict().items():
             if 'num_batches_tracked' not in k:
                 if 'backbone_s1.resinit' in k:
+                    # copy the backbone parameters
                     dict_new[k] = dict_trained['module.backbone'+k[11:]]
                 elif 'backbone_s1.pre' in k:
+                    # copy the backbone parameters
                     dict_new[k] = dict_trained['module.backbone.'+k[16:]]
                 elif 'head' in k or 'conv_3x3' in k:
+                    # copy the head parameters
                     dict_new[k] = dict_trained['module.'+k]
+                elif 'exit' in k and 'num' not in k:
+                    # copy the exit parameters
+                    dict_new[k] = dict_trained['module.backbone.layer4'+k[16:]]
 
         # dict_new['backbone_s1.resinit.conv1.weight'] = dict_trained_2['module.backbone_s1.resinit.conv1.weight']
         # dict_new['backbone_s1.resinit.bn1.weight'] = dict_trained_2['module.backbone_s1.resinit.bn1.weight']
@@ -113,11 +118,6 @@ class SpatialOCRNet_with_only_exit(nn.Module):
         # for k,v in self.state_dict().items():
         #     if 'backbone' not in k and 'num' not in k:
         #         dict_new[k] = dict_trained['module.'+k]
-
-        # copy the exit parameters
-        for k,v in self.state_dict().items():
-            if 'exit' in k and 'num' not in k:
-                dict_new[k] = dict_trained['module.backbone.layer4'+k[16:]]
 
         # freeze the backbone parameters
         for k,v in self.named_parameters():

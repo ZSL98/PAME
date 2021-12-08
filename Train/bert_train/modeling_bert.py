@@ -1784,6 +1784,115 @@ class BertWithExit_s2(BertPreTrainedModel):
         return s2_logits
 
 
+class BertWithSinglehead(BertPreTrainedModel):
+    def __init__(self, config):
+        super().__init__(config)
+
+        self.num_labels = config.num_labels
+        self.configuration_s1 = copy.deepcopy(config)
+
+        self.bert = BertModel(config)
+        classifier_dropout = config.hidden_dropout_prob
+        # classifier_dropout = (
+        #     config.classifier_dropout if config.classifier_dropout is not None else config.hidden_dropout_prob
+        # )
+        self.s1_dropout = nn.Dropout(classifier_dropout)
+        self.s1_classifier = nn.Linear(config.hidden_size, config.num_labels)
+
+        self.init_weights()
+
+    def add_exit(self, placement):
+        self.configuration_s1.num_hidden_layers = placement
+        self.bert_s1 = BertModel(self.configuration_s1)
+
+        dict_pre_trained = self.bert.state_dict().copy()
+        dict_s1 = self.bert_s1.state_dict().copy()
+
+        for k,v in self.bert.state_dict().items():
+            for k_s1,v_s1 in self.bert_s1.state_dict().items():
+                if k == k_s1:
+                    dict_s1[k_s1] = dict_pre_trained[k]
+
+        self.bert_s1.load_state_dict(dict_s1)
+        for param in self.bert_s1.parameters():
+            param.requires_grad = False
+        del(self.bert)
+        # self.init_weights()
+
+    def forward(
+        self,
+        input_ids=None,
+        attention_mask=None,
+        token_type_ids=None,
+        position_ids=None,
+        head_mask=None,
+        inputs_embeds=None,
+        labels=None,
+        output_attentions=None,
+        output_hidden_states=None,
+        return_dict=None,
+    ):
+        r"""
+        labels (:obj:`torch.LongTensor` of shape :obj:`(batch_size,)`, `optional`):
+            Labels for computing the sequence classification/regression loss. Indices should be in :obj:`[0, ...,
+            config.num_labels - 1]`. If :obj:`config.num_labels == 1` a regression loss is computed (Mean-Square loss),
+            If :obj:`config.num_labels > 1` a classification loss is computed (Cross-Entropy).
+        """
+        output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
+        output_hidden_states = (
+            output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
+        )
+        return_dict = return_dict if return_dict is not None else self.config.use_return_dict
+
+        s1_outputs = self.bert_s1(
+            input_ids,
+            attention_mask=attention_mask,
+            token_type_ids=token_type_ids,
+            position_ids=position_ids,
+            head_mask=head_mask,
+            inputs_embeds=inputs_embeds,
+            output_attentions=output_attentions,
+            output_hidden_states=output_hidden_states,
+            return_dict=return_dict,
+        )
+
+        s1_pooled_output = s1_outputs[1]
+        s1_pooled_output = self.s1_dropout(s1_pooled_output)
+        s1_logits = self.s1_classifier(s1_pooled_output)
+
+        loss = None
+        if labels is not None:
+            if self.config.problem_type is None:
+                if self.num_labels == 1:
+                    self.config.problem_type = "regression"
+                elif self.num_labels > 1 and (labels.dtype == torch.long or labels.dtype == torch.int):
+                    self.config.problem_type = "single_label_classification"
+                else:
+                    self.config.problem_type = "multi_label_classification"
+
+            if self.config.problem_type == "regression":
+                loss_fct = MSELoss()
+                if self.num_labels == 1:
+                    s1_loss = loss_fct(s1_logits.squeeze(), labels.squeeze())
+                else:
+                    s1_loss = loss_fct(s1_logits, labels)
+            elif self.config.problem_type == "single_label_classification":
+                loss_fct = CrossEntropyLoss()
+                s1_loss = loss_fct(s1_logits.view(-1, self.num_labels), labels.view(-1))
+            elif self.config.problem_type == "multi_label_classification":
+                loss_fct = BCEWithLogitsLoss()
+                s1_loss = loss_fct(s1_logits, labels)
+            loss = s1_loss
+        if not return_dict:
+            output = (s1_logits,) + s1_outputs[2:]
+            return ((loss,) + output) if loss is not None else output
+
+        return SequenceClassifierOutput(
+            loss=loss,
+            logits=s1_logits,
+            hidden_states=s1_outputs.hidden_states,
+            attentions=s1_outputs.attentions,
+        )
 
 
 class BertWithExit(BertPreTrainedModel):

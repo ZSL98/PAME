@@ -7,7 +7,7 @@ PRINT_FREQ: 100
 
 DATASET:
   DATASET: mpii
-  ROOT: 'data/mpii/'
+  ROOT: '/home/slzhang/projects/ETBA/Train/pose_estimation/data/mpii/'
   TEST_SET: valid
   TRAIN_SET: train
   FLIP: true
@@ -16,7 +16,8 @@ DATASET:
 MODEL:
   NAME: pose_resnet
   PRETRAINED: 'models/pytorch/imagenet/resnet101-5d3b4d8f.pth'
-  PRETRAINED_WITH_HEAD: 'output/mpii/pose_resnet_101/384x384_d256x3_adam_lr1e-3/checkpoint.pth.tar'
+  # PRETRAINED_WITH_HEAD: 'output/mpii/pose_resnet_101/384x384_d256x3_adam_lr1e-3/checkpoint.pth.tar'
+  PRETRAINED_WITH_HEAD: '/home/slzhang/projects/ETBA/Train/pose_estimation/models/pytorch/pose_mpii/pose_resnet_101_384x384.pth.tar'
   IMAGE_SIZE:
   - 384
   - 384
@@ -42,10 +43,10 @@ MODEL:
 LOSS:
   USE_TARGET_WEIGHT: true
 TRAIN:
-  BATCH_SIZE: 16
+  BATCH_SIZE: 8
   SHUFFLE: true
   BEGIN_EPOCH: 0
-  END_EPOCH: 140
+  END_EPOCH: 3
   RESUME: false
   OPTIMIZER: adam
   LR: 0.001
@@ -59,7 +60,7 @@ TRAIN:
   MOMENTUM: 0.9
   NESTEROV: false
 TEST:
-  BATCH_SIZE: 32
+  BATCH_SIZE: 16
   FLIP_TEST: false
   MODEL_FILE: ''
 DEBUG:

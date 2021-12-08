@@ -238,7 +238,9 @@ public:
     bool operator()(void** ptr, size_t size) const
     {
         *ptr = malloc(size);
+        // cudaMallocHost(ptr, size);
         return *ptr != nullptr;
+        // return cudaMallocHost(ptr, size) == cudaSuccess;
     }
 };
 
@@ -247,6 +249,7 @@ class HostFree
 public:
     void operator()(void* ptr) const
     {
+        // cudaFreeHost(ptr);
         free(ptr);
     }
 };
@@ -334,7 +337,7 @@ public:
     , mDeviceBindings(std::move(buf.mDeviceBindings)){}
 
     BufferManager(std::shared_ptr<nvinfer1::ICudaEngine> engine, const int batchSize = 0,
-        const std::shared_ptr<ManagedBuffer> srcPtr = nullptr, const std::vector<int>* copyListPtr = nullptr, 
+        const std::shared_ptr<ManagedBuffer> srcPtr = nullptr, int* copyListPtr = nullptr, size_t length_copy = 0,
         int copyMethod = 0, const nvinfer1::IExecutionContext* context = nullptr)
         : mEngine(engine)
         , mBatchSize(batchSize)
@@ -355,8 +358,8 @@ public:
                 // }
                 // size_t next_batch_size = std::accumulate(indicator.begin(), indicator.end(), 0);
 
-                std::vector<int> tmpCopyList = *copyListPtr;
-                size_t next_batch_size = tmpCopyList.size();
+                // std::vector<int> tmpCopyList = *copyListPtr;
+                size_t next_batch_size = length_copy;
                 size_t cur_batch_size = batchSize;
 
                 std::shared_ptr<ManagedBuffer> manBuf_ptr = srcPtr;
@@ -372,25 +375,27 @@ public:
 
                 float* dstPtr_ = static_cast<float*>(new_manBuf->deviceBuffer.data());
                 float* srcPtr_ = static_cast<float*>(manBuf_ptr->deviceBuffer.data());
-                int* copyList = new int[next_batch_size], *copyList_device = nullptr;
+                // int* copyList = new int[next_batch_size], *copyList_device = nullptr;
 
-                for (int idx = 0; idx < next_batch_size; idx++) {
-                    copyList[idx] = tmpCopyList[idx];
-                }
+                // for (int idx = 0; idx < next_batch_size; idx++) {
+                //     copyList[idx] = tmpCopyList[idx];
+                // }
 
                 if (mCopyMethod == 0) {
                     // useCUDA();
-                    CUDACHECK(cudaMalloc(&copyList_device, next_batch_size * sizeof(int)));
-                    CUDACHECK(cudaMemcpy(copyList_device, copyList, next_batch_size * sizeof(int), cudaMemcpyHostToDevice));
-                    buffercopy(dstPtr_, srcPtr_, singleVol*next_batch_size, copyList_device, singleVol);
+                    // CUDACHECK(cudaMalloc(&copyListPtr, next_batch_size * sizeof(int)));
+                    // CUDACHECK(cudaMemcpy(copyListPtr, copyList, next_batch_size * sizeof(int), cudaMemcpyHostToDevice));
+                    buffercopy(dstPtr_, srcPtr_, singleVol*next_batch_size, copyListPtr, singleVol, 0);
                 }
                 else {
                     size_t tSize = samplesCommon::getElementSize(type);
+                    int* copyListPtr_host = new int[next_batch_size];
+                    CUDACHECK(cudaMemcpy(copyListPtr_host, copyListPtr, next_batch_size * sizeof(int), cudaMemcpyDeviceToHost));
                     for (int stepOveridx = 0; stepOveridx < next_batch_size; stepOveridx++) {
                         //std::cout << "Copying: " << stepOveridx << std::endl;
                         const cudaMemcpyKind memcpyType = cudaMemcpyDeviceToDevice;
                         cudaMemcpy(dstPtr_ + stepOveridx*singleVol, 
-                                    srcPtr_ + copyList[stepOveridx]*singleVol, 
+                                    srcPtr_ + copyListPtr_host[stepOveridx]*singleVol, 
                                     singleVol*tSize, memcpyType);
                     }
                 }
@@ -433,6 +438,7 @@ public:
             */
             dims.d[0] = mBatchSize;
             size_t vol = samplesCommon::volume(dims);
+            // std::cout << "Output size: " << dims << std::endl;
             std::shared_ptr<ManagedBuffer> manBuf{new ManagedBuffer(vol, type)};
             //mDeviceBindings.emplace_back(manBuf->deviceBuffer.data());
             mManagedBuffers.emplace_back(std::move(manBuf));
@@ -743,12 +749,17 @@ public:
     , mDeviceBindings(std::move(buf.mDeviceBindings)){}
 
     BertBufferManager(std::shared_ptr<nvinfer1::ICudaEngine> engine, const int batchSize = 0,
-        const std::shared_ptr<BertManagedBuffer> srcPtr = nullptr, const std::vector<int>* copyListPtr = nullptr, 
+        const std::shared_ptr<BertManagedBuffer> srcPtr = nullptr, int* copyListPtr = nullptr, size_t length_copy = 0,
         int copyMethod = 0, const nvinfer1::IExecutionContext* context = nullptr)
         : mEngine(engine)
         , mBatchSize(batchSize)
         , mCopyMethod(copyMethod)
     {
+        // buffer_type:
+        // 0: [input_ids([1, 7]), attention_mask, token_type_ids, c_output([1, 7, 768]), exit_output([1, 2])]
+        // 1: [input_ids([1, 7, 768]), attention_mask, c_output([1, 7, 768]), exit_output([1, 2])]
+        // 2: [input_ids([1, 7, 768]), c_output([1, 2])]
+
         // Full Dims implies no batch size.
         // assert(engine->hasImplicitBatchDimension() || mBatchSize == 0);
         // Create host and device buffers
@@ -764,8 +775,7 @@ public:
                 // }
                 // size_t next_batch_size = std::accumulate(indicator.begin(), indicator.end(), 0);
 
-                std::vector<int> tmpCopyList = *copyListPtr;
-                size_t next_batch_size = tmpCopyList.size();
+                size_t next_batch_size = length_copy;
                 size_t cur_batch_size = batchSize;
 
                 std::shared_ptr<BertManagedBuffer> manBuf_ptr = srcPtr;
@@ -782,25 +792,19 @@ public:
 
                 float* dstPtr_ = static_cast<float*>(new_manBuf->deviceBuffer.data());
                 float* srcPtr_ = static_cast<float*>(manBuf_ptr->deviceBuffer.data());
-                int* copyList = new int[next_batch_size], *copyList_device = nullptr;
-
-                for (int idx = 0; idx < next_batch_size; idx++) {
-                    copyList[idx] = tmpCopyList[idx];
-                }
 
                 if (mCopyMethod == 0) {
-                    // useCUDA();
-                    CUDACHECK(cudaMalloc(&copyList_device, next_batch_size * sizeof(int)));
-                    CUDACHECK(cudaMemcpy(copyList_device, copyList, next_batch_size * sizeof(int), cudaMemcpyHostToDevice));
-                    buffercopy(dstPtr_, srcPtr_, singleVol*next_batch_size, copyList_device, singleVol);
+                    buffercopy(dstPtr_, srcPtr_, singleVol*next_batch_size, copyListPtr, singleVol, 0);
                 }
                 else {
                     size_t tSize = samplesCommon::getElementSize(type);
+                    int* copyListPtr_host = new int[next_batch_size];
+                    CUDACHECK(cudaMemcpy(copyListPtr_host, copyListPtr, next_batch_size * sizeof(int), cudaMemcpyDeviceToHost));
                     for (int stepOveridx = 0; stepOveridx < next_batch_size; stepOveridx++) {
                         //std::cout << "Copying: " << stepOveridx << std::endl;
                         const cudaMemcpyKind memcpyType = cudaMemcpyDeviceToDevice;
                         cudaMemcpy(dstPtr_ + stepOveridx*singleVol, 
-                                    srcPtr_ + copyList[stepOveridx]*singleVol, 
+                                    srcPtr_ + copyListPtr_host[stepOveridx]*singleVol, 
                                     singleVol*tSize, memcpyType);
                     }
                 }
@@ -852,7 +856,7 @@ public:
             mManagedBuffers.emplace_back(std::move(manBuf));
             //std::cout << mManagedBuffers.back()->deviceBuffer.data() <<std::endl;
             mDeviceBindings.emplace_back(mManagedBuffers.back()->deviceBuffer.data());
-            std::cout << "dims: " << dims << std::endl;
+            // std::cout << "dims: " << dims << std::endl;
 
             // if (i != 0) {
             //     auto dims = mEngine->getBindingDimensions(i);

@@ -666,7 +666,7 @@ class backbone_s1(nn.Module):
                                        layer_idx=3)
 
         if self.pre_layer[1] == 0:
-            self.exit = self._make_complex_exit(1, stride=1)
+            self.exit = self._make_complex_exit(1, stride=2)
         elif self.pre_layer[2] == 0:
             self.exit = self._make_complex_exit(2, stride=2)
         elif self.pre_layer[3] == 0:
