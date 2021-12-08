@@ -232,7 +232,7 @@ class convert_resnet:
                     # wandb.log({"acc1": acc1[0], "acc5": acc5[0], "pass_acc": p_acc, "pass_ratio": p_ratio})
                     progress.display(i)
 
-            cnts = plt.hist(self.hist_data, bins=16, range=(0,self.batch_size))
+            cnts = plt.hist(self.hist_data, bins=16, range=(0,1))
             print(cnts[0])
 
             if self.last_exit == None:
@@ -280,8 +280,8 @@ class convert_resnet:
 
             if moveon_cnt != 0:
                 moveon_acc = moveon_correct_cnt.float().mul_(100.0 / moveon_cnt)
-                # tmp = moveon_cnt/sum(last_moveon_list)
-                self.hist_data.append(moveon_cnt.cpu().item())
+                tmp = moveon_cnt/sum(last_moveon_list)
+                self.hist_data.append(tmp.cpu().item())
             else:
                 moveon_acc = torch.tensor(0.0)
                 self.hist_data.append(0)
@@ -479,6 +479,8 @@ class convert_posenet:
                                                 target[j].unsqueeze(0).cpu().numpy())
                             acc_moveon.update(avg_acc, 1)
                         acc.update(avg_acc, 1)
+                    else:
+                        moveon_dict[i].append(0)
 
                 if sum(last_moveon_dict[i]) > 0:
                     hist_data.append(sum(moveon_dict[i])/sum(last_moveon_dict[i]))
@@ -549,7 +551,7 @@ class convert_posenet:
                     # save_debug_images(config, input, meta, target, pred*4, exit_output,
                     #                   prefix)
 
-            cnts = plt.hist(hist_data, bins=16, range=(0,self.batch_size))
+            cnts = plt.hist(hist_data, bins=16, range=(0,1))
             print(cnts[0])
 
             if self.last_exit == None:
@@ -658,9 +660,9 @@ class convert_openseg:
         evaluator = get_evaluator(config, etrainer)
 
         self.moveon_ratio = AverageMeter('Ratio@Pass', ':6.2f')
-        mIoU = AverageMeter('mIoU@Avg', ':6.2f')
-        mIoU_s1 = AverageMeter('mIoU_s1@Avg', ':6.2f')
-        mIoU_s2 = AverageMeter('mIoU_s2@Avg', ':6.2f')
+        self.mIoU = AverageMeter('mIoU@Avg', ':6.2f')
+        self.mIoU_s1 = AverageMeter('mIoU_s1@Avg', ':6.2f')
+        self.mIoU_s2 = AverageMeter('mIoU_s2@Avg', ':6.2f')
 
         moveon_dict = dict()
         self.hist_data = []
@@ -672,6 +674,7 @@ class convert_openseg:
 
         for i, data_dict in enumerate(val_loader):
             (inputs, targets), batch_size = data_helper.prepare_data(data_dict)
+            moveon_dict[i] = []
             if self.last_exit == None:
                 last_moveon_dict[i] = [1]*len(targets)
 
@@ -680,29 +683,56 @@ class convert_openseg:
                 if isinstance(outputs, torch.Tensor):
                     outputs = [outputs]
                 metas = data_dict["meta"]
-                output_s1 = outputs[1].permute(0, 2, 3, 1)[0].cpu().numpy()
-                output_s2 = outputs[3].permute(0, 2, 3, 1)[0].cpu().numpy()
-                final_output = self.validate_openseg(output_s1, output_s2)
+                
+                for j in range(outputs[1].shape[0]):
+                    if last_moveon_dict[i][j] == 1:
+                        output_s1 = outputs[1].permute(0, 2, 3, 1)[j].cpu().numpy()
+                        output_s2 = outputs[3].permute(0, 2, 3, 1)[j].cpu().numpy()
+                        final_output = self.validate_openseg(i, output_s1, output_s2)
 
-                labelmap = np.argmax(final_output, axis=-1)
-                ori_target = metas[0]['ori_target']
-                RunningScore = rslib.RunningScore(config)
-                RunningScore.update(labelmap[None], ori_target[None])
-                rs = RunningScore.get_mean_iou()
-                if self.moveon_ratio.val == 0:
-                    mIoU_s1.update(rs)
-                else:
-                    mIoU_s2.update(rs)
-                mIoU.update(rs)
-                os.system("clear")
-                print("mIoU: {}".format(mIoU.avg))
-                print("mIoU_s1: {}".format(mIoU_s1.avg))
-                print("mIoU_s2: {}".format(mIoU_s2.avg))
-                print("moveon_ratio: {}".format(self.moveon_ratio.avg))
+                        labelmap = np.argmax(final_output, axis=-1)
+                        ori_target = metas[0]['ori_target']
+                        RunningScore = rslib.RunningScore(config)
+                        RunningScore.update(labelmap[None], ori_target[None])
+                        rs = RunningScore.get_mean_iou()
+                        if self.moveon_ratio.val == 0:
+                            self.mIoU_s1.update(rs)
+                            moveon_dict[i].append(0)
+                        else:
+                            self.mIoU_s2.update(rs)
+                            moveon_dict[i].append(1)
+                        self.mIoU.update(rs)
+                    else:
+                        moveon_dict[i].append(0)
 
-        return mIoU_s1.avg, mIoU_s2.avg, self.moveon_ratio.avg, mIoU.avg
+                # os.system("clear")
+                # print("mIoU: {}".format(mIoU.avg))
+                # print("mIoU_s1: {}".format(mIoU_s1.avg))
+                # print("mIoU_s2: {}".format(mIoU_s2.avg))
+                # print("moveon_ratio: {}".format(self.moveon_ratio.avg))
 
-    def validate_openseg(self, output_s1, output_s2):
+            if sum(last_moveon_dict[i]) > 0:
+                self.hist_data.append(sum(moveon_dict[i])/sum(last_moveon_dict[i]))
+            else:
+                self.hist_data.append(0)
+
+        cnts = plt.hist(self.hist_data, bins=16, range=(0,1))
+        print(cnts[0])
+
+        if self.last_exit == None:
+            with open('./moveon_dict/openseg_exit_e{}_b{}.pkl'.format(self.split_point, self.batch_size), "wb") as f:
+                pickle.dump(moveon_dict, f)
+            plt.savefig('./moveon_dict/openseg_hist_data_e{}_b{}.png'.format(self.split_point, self.batch_size))
+        else:
+            with open('./moveon_dict/openseg_exit_e{}_l{}_b{}.pkl'.format(self.split_point, self.last_exit, self.batch_size), "wb") as f:
+                pickle.dump(moveon_dict, f)
+            plt.savefig('./moveon_dict/openseg_hist_data_e{}_l{}_b{}.png'.format(self.split_point, self.last_exit, self.batch_size))
+
+        plt.close()
+
+        return self.mIoU_s1.avg, self.mIoU_s2.avg, self.moveon_ratio.avg, self.mIoU.avg
+
+    def validate_openseg(self, idx, output_s1, output_s2):
         # Shape of output_s1/output_s2: (1024, 2048, 19)
         pixel_threshold = self.p_thres
         num_threshold = self.n_thres
@@ -1361,7 +1391,7 @@ class ProgressMeter(object):
         return '[' + fmt + '/' + fmt.format(num_batches) + ']'
 
 
-def grid_search(task_name, split_point):
+def grid_search(task_name, split_point, batch_size):
     print('Grid searcing...')
     if task_name == 'resnet':
         print('Grid searcing for resnet...')
@@ -1369,7 +1399,7 @@ def grid_search(task_name, split_point):
             writer = csv.writer(f)
             writer.writerow(['p_thres', 'metric_eehead', 'metric_finalhead', 'moveon_ratio', 'metric_avg'])
 
-        inst = convert_resnet(split_point=split_point, batch_size=128, last_exit=None)
+        inst = convert_resnet(split_point=split_point, batch_size=batch_size, last_exit=None)
         net_wth_eehead, net_wth_finalhead = inst.load_resnet()
 
         for p_thres in np.arange(0.9, 1.0, 0.1):
@@ -1392,7 +1422,7 @@ def grid_search(task_name, split_point):
             writer = csv.writer(f)
             writer.writerow(['p_thres', 'n_thres', 'metric_eehead', 'metric_finalhead', 'moveon_ratio', 'metric_avg'])
 
-        inst = convert_posenet(split_point=6, batch_size=128, last_exit=None)
+        inst = convert_posenet(split_point=split_point, batch_size=batch_size, last_exit=None)
         for p_thres in np.arange(0.6, 0.85, 0.05):
             for n_thres in [5, 10, 15, 20, 30, 50]:
                 inst.p_thres = p_thres
@@ -1416,7 +1446,7 @@ def grid_search(task_name, split_point):
             writer = csv.writer(f)
             writer.writerow(['p_thres', 'n_thres', 'metric_eehead', 'metric_finalhead', 'moveon_ratio', 'metric_avg'])
 
-        inst = convert_openseg(split_point=split_point, batch_size=8, last_exit=None)
+        inst = convert_openseg(split_point=split_point, batch_size=batch_size, last_exit=None)
         net = inst.load_openseg()
         for p_thres in np.arange(1, 10, 1):
             for n_thres in [100000, 200000, 500000, 1000000]:
@@ -1453,24 +1483,27 @@ if __name__ == '__main__':
     if mode == 'test':
         if task == 'resnet':
             split_point = 15
-            opt_p_thres = grid_search(task, split_point)
-            inst = convert_resnet(split_point=split_point, batch_size=128, last_exit=None)
+            batch_size = 128
+            opt_p_thres = grid_search(task, split_point, batch_size)
+            inst = convert_resnet(split_point=split_point, batch_size=batch_size, last_exit=None)
             inst.p_thres = opt_p_thres
             net_wth_eehead, net_wth_finalhead = inst.load_resnet()
             inst.eval_resnet(net_wth_eehead, net_wth_finalhead)
 
         elif task == 'posenet':
             split_point = 15
-            opt_p_thres, opt_n_thres = grid_search(task, split_point)
-            inst = convert_posenet(split_point=split_point, batch_size=128, last_exit=None)
+            batch_size = 128
+            opt_p_thres, opt_n_thres = grid_search(task, split_point, batch_size)
+            inst = convert_posenet(split_point=split_point, batch_size=batch_size, last_exit=None)
             inst.p_thres = opt_p_thres
             inst.n_thres = opt_n_thres
             inst.eval_posenet()
 
         elif task == 'openseg':
             split_point = 15
-            opt_p_thres, opt_n_thres = grid_search(task, split_point)
-            inst = convert_openseg(split_point=split_point, batch_size=128, last_exit=None)
+            batch_size = 4
+            opt_p_thres, opt_n_thres = grid_search(task, split_point, batch_size)
+            inst = convert_openseg(split_point=split_point, batch_size=batch_size, last_exit=None)
             inst.p_thres = opt_p_thres
             inst.n_thres = opt_n_thres
             inst.eval_openseg()
