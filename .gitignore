@@ -21,3 +21,4 @@ mrpc
 stsb
 train_ouput*
 *.pkl
+*.csv
