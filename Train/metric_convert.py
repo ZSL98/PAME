@@ -13,7 +13,7 @@ import argparse
 import pickle
 from typing import Any, Dict, List, Optional, Union
 import torchvision.transforms as transforms
-from tensorboardX import SummaryWriter
+# from tensorboardX import SummaryWriter
 import torch.nn as nn
 import torch.nn.parallel
 import torch.backends.cudnn as cudnn
@@ -234,15 +234,18 @@ class convert_resnet:
 
             cnts = plt.hist(self.hist_data, bins=16, range=(0,1))
             print(cnts[0])
+            hist_data_numpy = np.array(self.hist_data)
 
             if self.last_exit == None:
                 with open('./moveon_dict/resnet_exit_e{}_b{}.pkl'.format(self.split_point, self.batch_size), "wb") as f:
                     pickle.dump(moveon_dict, f)
                 plt.savefig('./moveon_dict/resnet_hist_data_e{}_b{}.png'.format(self.split_point, self.batch_size))
+                np.save('./moveon_dict/resnet_hist_data_e{}_b{}.npy'.format(self.split_point, self.batch_size), hist_data_numpy)
             else:
                 with open('./moveon_dict/resnet_exit_e{}_l{}_b{}.pkl'.format(self.split_point, self.last_exit, self.batch_size), "wb") as f:
                     pickle.dump(moveon_dict, f)
                 plt.savefig('./moveon_dict/resnet_hist_data_e{}_l{}_b{}.png'.format(self.split_point, self.last_exit, self.batch_size))
+                np.save('./moveon_dict/resnet_hist_data_e{}_l{}_b{}.npy'.format(self.split_point, self.last_exit, self.batch_size), hist_data_numpy)
 
             plt.close()
             print(' * Acc@1 {top1.avg:.3f} Acc@5 {top5.avg:.3f}'
@@ -705,6 +708,9 @@ class convert_openseg:
                     else:
                         moveon_dict[i].append(0)
 
+            if i % 10 == 0:
+                print(str(i) + '/' + str(len(val_loader)) + '  mIoU_s1: {:.3f}\t mIoU_s2: {:.3f}\t Moveon@Ratio: {:.3f}\t mIoU: {:.3f}'.format \
+                        (self.mIoU_s1.avg, self.mIoU_s2.avg, self.moveon_ratio.avg, self.mIoU.avg))
                 # os.system("clear")
                 # print("mIoU: {}".format(mIoU.avg))
                 # print("mIoU_s1: {}".format(mIoU_s1.avg))
@@ -749,9 +755,11 @@ class convert_openseg:
             return output_s2
 
 class convert_bert:
-    def __init__(self, split_point, task_name) -> None:
+    def __init__(self, split_point, task_name, batch_size, last_exit) -> None:
         super().__init__()
         self.task_name = task_name
+        self.last_exit = last_exit
+        self.batch_size = batch_size
         self.split_point = split_point
         self.raw_datasets = load_dataset("glue", task_name, cache_dir=None)
         self.is_regression = task_name == "stsb"
@@ -800,6 +808,8 @@ class convert_bert:
         # We now keep distinct sets of args, for a cleaner separation of concerns.
         
         # TODO: rewrite the parser
+
+        # TrainingArguments.per_gpu_eval_batch_size = self.batch_size
         parser = HfArgumentParser((ModelArguments, DataTrainingArguments, TrainingArguments))
         if len(sys.argv) == 2 and sys.argv[1].endswith(".json"):
             # If we pass only one argument to the script and it's the path to a json file,
@@ -995,6 +1005,7 @@ class convert_bert:
         passAcc = AverageMeter('passAcc@Avg', ':6.2f')
         moveonAcc = AverageMeter('mvonAcc@Avg', ':6.2f')
         moveonRatio = AverageMeter('mvonRatio@Avg', ':6.2f')
+        avgAcc = AverageMeter('avgAcc@Avg', ':6.2f')
 
         tasks = [self.task_name]
         eval_datasets = [self.eval_dataset]
@@ -1002,26 +1013,65 @@ class convert_bert:
             tasks.append("mnli-mm")
             eval_datasets.append(self.raw_datasets["validation_mismatched"])
 
-        for eval_dataset, task in zip(eval_datasets, tasks):
+        self.moveon_dict = dict()
+        self.hist_data = []
+        if self.last_exit == None:
+            last_moveon_dict = dict()
+        else:
+            with open('./moveon_dict/{}_exit_e{}_b{}.pkl'.format(self.task_name, self.last_exit, self.batch_size), 'rb') as f:
+                last_moveon_dict = pickle.load(f)
+
+        for i, (eval_dataset, task) in enumerate(zip(eval_datasets, tasks)):
+
+            if self.last_exit == None:
+                last_moveon_dict[i] = [1]*len(eval_dataset)
+
             predictions = eval_eehead.predict(eval_dataset, metric_key_prefix="predict").predictions
             final_predictions = eval_finalhead.predict(eval_dataset, metric_key_prefix="predict").predictions
 
-            pass_acc, moveon_acc, moveon_cnt = self.validate_bert(predictions, final_predictions, eval_dataset)
+            pass_acc, moveon_acc, moveon_indicator = self.validate_bert(i, predictions, final_predictions,
+                                 torch.tensor(last_moveon_dict[i], dtype=torch.bool), eval_dataset)
+
+            moveon_cnt = sum(moveon_indicator)
 
             passAcc.update(pass_acc, len(eval_dataset))
             moveonAcc.update(moveon_acc, len(eval_dataset))
-            moveonRatio.update(moveon_cnt/len(eval_dataset), len(eval_dataset))
+            moveonRatio.update(moveon_cnt/sum(last_moveon_dict[i]), len(eval_dataset))
+            avgAcc.update(passAcc.val*(1-moveonRatio.val)+moveonAcc.val*moveonRatio.val, len(eval_dataset))
+
+        splited_moveon_indicator = [moveon_indicator[i:i+self.batch_size] for i in range(0,len(moveon_indicator), self.batch_size)]
+        splited_last_moveon_dict = [last_moveon_dict[0][i:i+self.batch_size] for i in range(0,len(last_moveon_dict[0]), self.batch_size)]
+        for i in range(int(len(last_moveon_dict[0])/self.batch_size) + 1):
+            if sum(splited_last_moveon_dict[i]) != 0:
+                splited_moveon_ratio = sum(splited_moveon_indicator[i])/sum(splited_last_moveon_dict[i])
+                self.hist_data.append(splited_moveon_ratio.item())
+            else:
+                self.hist_data.append(0)
 
         # os.system("clear")
         print("passAcc: {}".format(passAcc.avg))
         print("moveonAcc: {}".format(moveonAcc.avg))
         print("moveon_ratio: {}".format(moveonRatio.avg))
-        acc_avg = passAcc.avg * (1-moveonRatio.avg) + moveonAcc.avg * moveonRatio.avg
+        print("avgAcc: {}".format(avgAcc.avg))
 
-        return passAcc.avg.item(), moveonAcc.avg.item(), moveonRatio.avg.item(), acc_avg.item()
+        cnts = plt.hist(self.hist_data, bins=16, range=(0,1))
+        print(cnts[0])
+
+        if self.last_exit == None:
+            with open('./moveon_dict/{}_exit_e{}_b{}.pkl'.format(self.task_name, self.split_point, self.batch_size), "wb") as f:
+                pickle.dump(self.moveon_dict, f)
+            plt.savefig('./moveon_dict/{}_hist_data_e{}_b{}.png'.format(self.task_name, self.split_point, self.batch_size))
+        else:
+            with open('./moveon_dict/{}_exit_e{}_l{}_b{}.pkl'.format(self.task_name, self.split_point, self.last_exit, self.batch_size), "wb") as f:
+                pickle.dump(self.moveon_dict, f)
+            plt.savefig('./moveon_dict/{}_hist_data_e{}_l{}_b{}.png'.format(self.task_name, self.split_point, self.last_exit, self.batch_size))
+
+        plt.close()
+
+        return passAcc.avg.item(), moveonAcc.avg.item(), moveonRatio.avg.item(), avgAcc.avg.item()
 
 
-    def validate_bert(self, output, final_output, eval_dataset):
+    def validate_bert(self, idx, output, final_output, last_moveon_list, eval_dataset):
 
         output = torch.from_numpy(output)
         final_output = torch.from_numpy(final_output)
@@ -1030,12 +1080,13 @@ class convert_bert:
         softmax_output = m(output)
         softmax_final_output = m(final_output)
 
-        pass_indicator = torch.max(softmax_output, 1)[0] > self.p_thres
-        moveon_indicator = ~pass_indicator
+        pass_indicator = (torch.max(softmax_output, 1)[0] > self.p_thres) & last_moveon_list
+        moveon_indicator = (torch.max(softmax_output, 1)[0] <= self.p_thres) & last_moveon_list
+        self.moveon_dict[idx] = moveon_indicator
         pass_cnt = sum(pass_indicator)
         moveon_cnt = sum(moveon_indicator)
-        correct_indicator = torch.max(softmax_output, 1)[1] == target
-        final_correct_indicator = torch.max(softmax_final_output, 1)[1] == target
+        correct_indicator = (torch.max(softmax_output, 1)[1] == target) & last_moveon_list
+        final_correct_indicator = (torch.max(softmax_final_output, 1)[1] == target) & last_moveon_list
         pass_correct_indicator = pass_indicator & correct_indicator
         moveon_correct_indicator = moveon_indicator & final_correct_indicator
         pass_correct_cnt = sum(pass_correct_indicator)
@@ -1051,7 +1102,7 @@ class convert_bert:
         else:
             moveon_acc = torch.tensor(0.0)
 
-        return pass_acc, moveon_acc, moveon_cnt
+        return pass_acc, moveon_acc, moveon_indicator
 
 class convert_Wav2Vec2(object):
 
@@ -1395,14 +1446,10 @@ def grid_search(task_name, split_point, batch_size):
     print('Grid searcing...')
     if task_name == 'resnet':
         print('Grid searcing for resnet...')
-        with open('/home/slzhang/projects/ETBA/Train/conversion_results/resnet_results_{}.csv'.format(split_point), 'a+') as f:
-            writer = csv.writer(f)
-            writer.writerow(['p_thres', 'metric_eehead', 'metric_finalhead', 'moveon_ratio', 'metric_avg'])
-
         inst = convert_resnet(split_point=split_point, batch_size=batch_size, last_exit=None)
         net_wth_eehead, net_wth_finalhead = inst.load_resnet()
 
-        for p_thres in np.arange(0.9, 1.0, 0.1):
+        for p_thres in np.arange(0, 1.05, 0.05):
             inst.p_thres = p_thres
             metric_eehead, metric_finalhead, moveon_ratio, metric_avg = inst.eval_resnet(net_wth_eehead, net_wth_finalhead)
             print('p_thres: ' + str(p_thres) + '  moveon_ratio: ' + str(moveon_ratio) +'  metric_avg: ' + str(metric_avg))
@@ -1410,17 +1457,14 @@ def grid_search(task_name, split_point, batch_size):
                 writer = csv.writer(f)
                 writer.writerow([p_thres, metric_eehead, metric_finalhead, moveon_ratio, metric_avg])
 
-        result = pd.read_csv('/home/slzhang/projects/ETBA/Train/conversion_results/resnet_results_{}.csv'.format(split_point))
-        result_satisfied = result[result['metric_avg']>76]
-        opt_p_thres = result_satisfied[result_satisfied['moveon_ratio'] == result_satisfied['moveon_ratio'].min()]['p_thres']
+        result = pd.read_csv('/home/slzhang/projects/ETBA/Train/conversion_results/resnet_results_{}.csv'.format(split_point), header=None)
+        result_satisfied = result[result.iloc[:,4]> 77.34*0.98]
+        opt_p_thres = result_satisfied[result_satisfied.iloc[:,3] == result_satisfied.iloc[:,3].min()].iloc[:,0]
 
-        return opt_p_thres[0]
+        return opt_p_thres.item()
 
     elif task_name == 'posenet':
         print('Grid searcing for posenet...')
-        with open('/home/slzhang/projects/ETBA/Train/conversion_results/posenet_results_{}.csv'.format(split_point), 'a+') as f:
-            writer = csv.writer(f)
-            writer.writerow(['p_thres', 'n_thres', 'metric_eehead', 'metric_finalhead', 'moveon_ratio', 'metric_avg'])
 
         inst = convert_posenet(split_point=split_point, batch_size=batch_size, last_exit=None)
         for p_thres in np.arange(0.6, 0.85, 0.05):
@@ -1433,18 +1477,15 @@ def grid_search(task_name, split_point, batch_size):
                     writer = csv.writer(f)
                     writer.writerow([p_thres, n_thres, acc_pass, acc_moveon, moveon_ratio, metric_avg])
         
-        result = pd.read_csv('/home/slzhang/projects/ETBA/Train/conversion_results/posenet_results_{}.csv'.format(split_point))
-        result_satisfied = result[result['metric_avg']>85]
-        opt_p_thres = result_satisfied[result_satisfied['moveon_ratio'] == result_satisfied['moveon_ratio'].min()]['p_thres']
-        opt_n_thres = result_satisfied[result_satisfied['moveon_ratio'] == result_satisfied['moveon_ratio'].min()]['n_thres']
+        result = pd.read_csv('/home/slzhang/projects/ETBA/Train/conversion_results/posenet_results_{}.csv'.format(split_point), header=None)
+        result_satisfied = result[result.iloc[:,5]>85]
+        opt_p_thres = result_satisfied[result_satisfied.iloc[:,4] == result_satisfied.iloc[:,4].min()].iloc[:,0]
+        opt_n_thres = result_satisfied[result_satisfied.iloc[:,4] == result_satisfied.iloc[:,4].min()].iloc[:,1]
 
-        return opt_p_thres[0], opt_n_thres[0]
+        return opt_p_thres.item(), opt_n_thres.item()
 
     elif task_name == 'openseg':
         print('Grid searcing for openseg...')
-        with open('/home/slzhang/projects/ETBA/Train/conversion_results/openseg_results_{}.csv'.format(split_point), 'a+') as f:
-            writer = csv.writer(f)
-            writer.writerow(['p_thres', 'n_thres', 'metric_eehead', 'metric_finalhead', 'moveon_ratio', 'metric_avg'])
 
         inst = convert_openseg(split_point=split_point, batch_size=batch_size, last_exit=None)
         net = inst.load_openseg()
@@ -1456,15 +1497,16 @@ def grid_search(task_name, split_point, batch_size):
                     writer = csv.writer(f)
                     writer.writerow([p_thres, n_thres, metric_eehead, metric_finalhead, moveon_ratio, metric_avg])
 
-        result = pd.read_csv('/home/slzhang/projects/ETBA/Train/conversion_results/opoenseg_results_{}.csv'.format(split_point))
-        result_satisfied = result[result['metric_avg']>80]
-        opt_p_thres = result_satisfied[result_satisfied['moveon_ratio'] == result_satisfied['moveon_ratio'].min()]['p_thres']
-        opt_n_thres = result_satisfied[result_satisfied['moveon_ratio'] == result_satisfied['moveon_ratio'].min()]['n_thres']
+        result = pd.read_csv('/home/slzhang/projects/ETBA/Train/conversion_results/openseg_results_{}.csv'.format(split_point), header=None)
+        result_satisfied = result[result.iloc[:,5]>80]
+        opt_p_thres = result_satisfied[result_satisfied.iloc[:,4] == result_satisfied.iloc[:,4].min()].iloc[:,0]
+        opt_n_thres = result_satisfied[result_satisfied.iloc[:,4] == result_satisfied.iloc[:,4].min()].iloc[:,1]
 
-        return opt_p_thres[0], opt_n_thres[0]
+        return opt_p_thres.item(), opt_n_thres.item()
 
     elif task_name == 'mrpc':
-        inst = convert_bert(split_point=split_point, task_name=task_name)
+        print('Grid searcing for mrpc...')
+        inst = convert_bert(split_point=split_point, task_name=task_name, batch_size=batch_size, last_exit=None)
         eval_eehead, eval_finalhead = inst.load_bert()
         for p_thres in np.arange(0, 1.1, 0.1):
             inst.p_thres = p_thres
@@ -1472,23 +1514,32 @@ def grid_search(task_name, split_point, batch_size):
             with open('/home/slzhang/projects/ETBA/Train/conversion_results/mrpc_results_{}.csv'.format(split_point), 'a+') as f:
                 writer = csv.writer(f)
                 writer.writerow([p_thres, metric_eehead, metric_finalhead, moveon_ratio, metric_avg])
+    
+        result = pd.read_csv('/home/slzhang/projects/ETBA/Train/conversion_results/mrpc_results_{}.csv'.format(split_point), header=None)
+        result_satisfied = result[result.iloc[:,4]>82.6-1]
+        opt_p_thres = result_satisfied[result_satisfied.iloc[:,3] == result_satisfied.iloc[:,3].min()].iloc[:,0]
+
+        return opt_p_thres.item()
 
     elif task_name == 'Wav2Vec2':
         pass
 
 if __name__ == '__main__':
-    task = 'openseg'
+    task = 'resnet'
     mode = 'test'
 
     if mode == 'test':
         if task == 'resnet':
-            split_point = 15
-            batch_size = 128
-            opt_p_thres = grid_search(task, split_point, batch_size)
-            inst = convert_resnet(split_point=split_point, batch_size=batch_size, last_exit=None)
-            inst.p_thres = opt_p_thres
-            net_wth_eehead, net_wth_finalhead = inst.load_resnet()
-            inst.eval_resnet(net_wth_eehead, net_wth_finalhead)
+            for split_point in range(1, 34):
+                batch_size = 128
+                opt_p_thres = grid_search(task, split_point, batch_size)
+                inst = convert_resnet(split_point=split_point, batch_size=batch_size, last_exit=None)
+                inst.p_thres = opt_p_thres
+                with open('/home/slzhang/projects/ETBA/Train/opt_thres_record/resnet.csv', 'a+') as f:
+                    writer = csv.writer(f)
+                    writer.writerow([split_point, opt_p_thres])
+                net_wth_eehead, net_wth_finalhead = inst.load_resnet()
+                inst.eval_resnet(net_wth_eehead, net_wth_finalhead)
 
         elif task == 'posenet':
             split_point = 15
@@ -1501,7 +1552,7 @@ if __name__ == '__main__':
 
         elif task == 'openseg':
             split_point = 15
-            batch_size = 4
+            batch_size = 2
             opt_p_thres, opt_n_thres = grid_search(task, split_point, batch_size)
             inst = convert_openseg(split_point=split_point, batch_size=batch_size, last_exit=None)
             inst.p_thres = opt_p_thres
@@ -1509,9 +1560,14 @@ if __name__ == '__main__':
             inst.eval_openseg()
 
         elif task == 'bert':
-            inst = convert_bert(split_point=8, task_name='mrpc')
+            split_point = 8
+            batch_size = 16
+            opt_p_thres = grid_search('mrpc', split_point, batch_size)
+            inst = convert_bert(split_point=split_point, task_name='mrpc', batch_size=batch_size, last_exit=None)
+            inst.p_thres = opt_p_thres
             eval_eehead, eval_finalhead = inst.load_bert()
             inst.eval_bert(eval_eehead, eval_finalhead)
+
         elif task == 'Wav2Vec2':
             inst = convert_Wav2Vec2(split_point=5)
             inst.load_Wav2Vec2()

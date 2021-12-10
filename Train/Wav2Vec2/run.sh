@@ -5,7 +5,7 @@ LOG_FILE="./train_output.log"
 exec 1>${LOG_FILE} 2>&1
 
 
-for i in {1..12}
+for i in {1..11}
 do
    python train.py --split_point $i
 done

@@ -9,6 +9,7 @@ import pandas as pd
 import numpy as np
 import soundfile as sf
 import argparse
+from typing import OrderedDict
 # from IPython.display import display, HTML
 
 from transformers import Wav2Vec2CTCTokenizer, Wav2Vec2FeatureExtractor, Wav2Vec2Processor, TrainingArguments, Trainer
@@ -122,15 +123,8 @@ def compute_metrics(pred):
 
     return {"wer": wer}
 
-if __name__ == '__main__':
 
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--split_point",
-        default=None,
-        type=int,
-    )
-    args_parser = parser.parse_args()
+if __name__ == '__main__':
 
     tokenizer = Wav2Vec2CTCTokenizer("./vocab.json", unk_token="[UNK]", pad_token="[PAD]", word_delimiter_token="|")
     feature_extractor = Wav2Vec2FeatureExtractor(feature_size=1, sampling_rate=16000, padding_value=0.0, do_normalize=True, return_attention_mask=False)
@@ -145,52 +139,37 @@ if __name__ == '__main__':
     data_collator = DataCollatorCTCWithPadding(processor=processor, padding=True)
 
     # model = Wav2Vec2ForCTC.from_pretrained("facebook/wav2vec2-base-960h")
-    model = Wav2Vec2ForCTC.from_pretrained(
-        "facebook/wav2vec2-base", 
-        gradient_checkpointing=True, 
-        ctc_loss_reduction="mean", 
-        pad_token_id=processor.tokenizer.pad_token_id,
-    )
+    net_wth_finalhead_dict = torch.load('/home/slzhang/projects/ETBA/Train/Wav2Vec2/checkpoints/timit_exit_12/checkpoint-7000/pytorch_model.bin')
 
-    model_CTC = Wav2Vec2_with_exit.from_pretrained(
+    net_wth_finalhead = Wav2Vec2_with_exit.from_pretrained(
         "facebook/wav2vec2-base", 
         gradient_checkpointing=True, 
         ctc_loss_reduction="mean", 
         pad_token_id=processor.tokenizer.pad_token_id,
     )
     # model_CTC = Wav2Vec2_with_exit.from_pretrained("facebook/wav2vec2-base-960h")
-    model_CTC.add_exit(args_parser.split_point)
-    model_CTC.freeze_feature_extractor()
+    net_wth_finalhead.add_exit(12)
 
-    # model.freeze_feature_extractor()
+    dict_finalhead = OrderedDict()
 
-    training_args = TrainingArguments(
-    # output_dir="/content/gdrive/MyDrive/wav2vec2-base-timit-demo",
-    output_dir="./checkpoints/timit_exit_{}".format(args_parser.split_point),
-    group_by_length=True,
-    per_device_train_batch_size=32,
-    evaluation_strategy="steps",
-    num_train_epochs=30,
-    fp16=True,
-    save_steps=500,
-    eval_steps=500,
-    logging_steps=500,
-    learning_rate=1e-4,
-    weight_decay=0.005,
-    warmup_steps=1000,
-    save_total_limit=2,
-    )
+    for k,v in net_wth_finalhead.state_dict().items():
+        dict_finalhead[k] = net_wth_finalhead_dict[k]
+    net_wth_finalhead.load_state_dict(dict_finalhead)
 
-    trainer = Trainer(
-        model=model_CTC,
-        data_collator=data_collator,
-        args=training_args,
-        compute_metrics=compute_metrics,
-        train_dataset=timit_prepared["train"],
-        eval_dataset=timit_prepared["test"],
-        tokenizer=processor.feature_extractor,
-    )
+    def map_to_result(batch):
+        with torch.no_grad():
+            input_values = torch.tensor(batch["input_values"], device="cuda").unsqueeze(0)
+            logits = net_wth_finalhead(input_values).logits
 
-    os.environ["WANDB_DISABLED"] = "true"
-    trainer.train()
+        pred_ids = torch.argmax(logits, dim=-1)
+        batch["pred_str"] = processor.batch_decode(pred_ids)[0]
+        batch["text"] = processor.decode(batch["labels"], group_tokens=False)
+    
+        return batch
+    
+    results = timit_prepared["test"].map(map_to_result, remove_columns=timit_prepared["test"].column_names)
+    wer_metric = load_metric("wer")
+    print("Test WER: {:.3f}".format(wer_metric.compute(predictions=results["pred_str"], references=results["text"])))
+    
+
 
