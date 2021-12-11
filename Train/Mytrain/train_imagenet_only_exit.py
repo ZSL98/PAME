@@ -29,7 +29,7 @@ parser.add_argument('--data', metavar='DIR', default='/home/slzhang/projects/Sha
                     help='path to dataset')
 parser.add_argument('-j', '--workers', default=4, type=int, metavar='N',
                     help='number of data loading workers (default: 4)')
-parser.add_argument('--epochs', default=1, type=int, metavar='N',
+parser.add_argument('--epochs', default=10, type=int, metavar='N',
                     help='number of total epochs to run')
 # parser.add_argument('--start-point', default=33, type=int, metavar='N',
 #                     help='split the network from the start point')
@@ -328,7 +328,7 @@ def main_worker(gpu, ngpus_per_node, args):
                 'state_dict':model.state_dict(),
                 'best_acc1': best_acc1,
                 'optimizer' : optimizer.state_dict(),
-            }, is_best, filename='./models/checkpoint.pth.tar.'+str(args.split_point))
+            }, is_best, filename='./checkpoints/train_{}/checkpoint.pth.tar.'.format(args.epochs)+str(args.split_point))
 
 
 def hook(module, fea_in, fea_out):

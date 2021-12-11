@@ -3,6 +3,7 @@ import cv2
 import os
 import sys
 import csv
+import json
 import time
 import logging
 import numpy as np
@@ -115,13 +116,13 @@ class convert_resnet:
     def __init__(self, split_point, batch_size, last_exit) -> None:
         super().__init__()
         self.split_point = split_point
-        self.p_thres = 0.7
+        self.p_thres = 0.75
         self.last_exit = last_exit
         self.batch_size = batch_size
         
     def load_resnet(self):
         net_wth_finalhead = models.resnet101(pretrained=True)
-        net_wth_eehead_dict = torch.load("/home/slzhang/projects/ETBA/Train/Mytrain/models/checkpoint.pth.tar."+str(self.split_point))
+        net_wth_eehead_dict = torch.load("/home/slzhang/projects/ETBA/Train/Mytrain/checkpoints/train_sip/checkpoint.pth.tar."+str(self.split_point))
         net_wth_eehead = partial_resnet(start_point=self.split_point, end_point=self.split_point, simple_exit=False)
 
         dict_new = OrderedDict()
@@ -179,13 +180,13 @@ class convert_resnet:
             if self.last_exit == None:
                 last_moveon_dict = dict()
             else:
-                with open('./moveon_dict/resnet_exit_e{}_b{}.pkl'.format(self.last_exit, self.batch_size), 'rb') as f:
-                    last_moveon_dict = pickle.load(f)
+                with open('./moveon_dict/resnet_exit_e{}_b{}.json'.format(self.last_exit, self.batch_size), 'rb') as f:
+                    last_moveon_dict = json.load(f)
 
             for i, (images, target) in enumerate(val_loader):
 
                 if self.last_exit == None:
-                    last_moveon_dict[i] = [1]*len(target)
+                    last_moveon_dict[str(i)] = [1]*len(target)
 
                 # compute output
                 images = images.cuda()
@@ -197,7 +198,7 @@ class convert_resnet:
                 loss = criterion(exit_output, target)
 
                 # measure accuracy and record loss
-                matrices = self.validate_resnet(exit_output, output, target, torch.tensor(last_moveon_dict[i], dtype=torch.bool).cuda(), topk=(1, 5))
+                matrices = self.validate_resnet(exit_output, output, target, torch.tensor(last_moveon_dict[str(i)], dtype=torch.bool).cuda(), topk=(1, 5))
                 acc1 = matrices[0]
                 acc5 = matrices[2]
                 acc1_final = matrices[1]
@@ -206,7 +207,7 @@ class convert_resnet:
                 p_ratio = matrices[5]
                 m_acc = matrices[6]
                 m_ratio = matrices[7]
-                moveon_dict[i] = matrices[8]
+                moveon_dict[i] = matrices[8].tolist()
 
                 p_acc = p_acc.cuda()
                 p_ratio = p_ratio.cuda()
@@ -237,13 +238,13 @@ class convert_resnet:
             hist_data_numpy = np.array(self.hist_data)
 
             if self.last_exit == None:
-                with open('./moveon_dict/resnet_exit_e{}_b{}.pkl'.format(self.split_point, self.batch_size), "wb") as f:
-                    pickle.dump(moveon_dict, f)
+                with open('./moveon_dict/resnet_exit_e{}_b{}.json'.format(self.split_point, self.batch_size), "w") as f:
+                    json.dump(moveon_dict, f)
                 plt.savefig('./moveon_dict/resnet_hist_data_e{}_b{}.png'.format(self.split_point, self.batch_size))
                 np.save('./moveon_dict/resnet_hist_data_e{}_b{}.npy'.format(self.split_point, self.batch_size), hist_data_numpy)
             else:
-                with open('./moveon_dict/resnet_exit_e{}_l{}_b{}.pkl'.format(self.split_point, self.last_exit, self.batch_size), "wb") as f:
-                    pickle.dump(moveon_dict, f)
+                with open('./moveon_dict/resnet_exit_e{}_l{}_b{}.json'.format(self.split_point, self.last_exit, self.batch_size), "w") as f:
+                    json.dump(moveon_dict, f)
                 plt.savefig('./moveon_dict/resnet_hist_data_e{}_l{}_b{}.png'.format(self.split_point, self.last_exit, self.batch_size))
                 np.save('./moveon_dict/resnet_hist_data_e{}_l{}_b{}.npy'.format(self.split_point, self.last_exit, self.batch_size), hist_data_numpy)
 
@@ -427,13 +428,13 @@ class convert_posenet:
             if self.last_exit == None:
                 last_moveon_dict = dict()
             else:
-                with open('./moveon_dict/posenet_exit_e{}_b{}.pkl'.format(self.last_exit, self.batch_size), 'rb') as f:
-                    last_moveon_dict = pickle.load(f)
+                with open('./moveon_dict/posenet_exit_e{}_b{}.json'.format(self.last_exit, self.batch_size), 'rb') as f:
+                    last_moveon_dict = json.load(f)
 
             for i, (input, target, target_weight, meta) in enumerate(self.valid_loader):
                 # compute output
                 if self.last_exit == None:
-                    last_moveon_dict[i] = [1]*len(target)
+                    last_moveon_dict[str(i)] = [1]*len(target)
 
                 moveon_dict[i] = []
                 output, exit_output = self.net(input)
@@ -467,7 +468,7 @@ class convert_posenet:
                 pixel_confidence = self.p_thres
                 num_threshold = self.n_thres
                 for j in range(output.shape[0]):
-                    if last_moveon_dict[i][j] == 1:
+                    if last_moveon_dict[str(i)][j] == 1:
                         if len(exit_output[j][exit_output[j] > pixel_confidence]) > num_threshold:
                             moveon_dict[i].append(0)
                             moveon_ratio.update(0, 1)
@@ -485,8 +486,8 @@ class convert_posenet:
                     else:
                         moveon_dict[i].append(0)
 
-                if sum(last_moveon_dict[i]) > 0:
-                    hist_data.append(sum(moveon_dict[i])/sum(last_moveon_dict[i]))
+                if sum(last_moveon_dict[str(i)]) > 0:
+                    hist_data.append(sum(moveon_dict[i])/sum(last_moveon_dict[str(i)]))
                 else:
                     hist_data.append(0)
                 # hist_data.append(sum(moveon_dict[i])/len(moveon_dict[i]))
@@ -558,12 +559,12 @@ class convert_posenet:
             print(cnts[0])
 
             if self.last_exit == None:
-                with open('./moveon_dict/posenet_exit_e{}_b{}.pkl'.format(self.split_point, self.batch_size), "wb") as f:
-                    pickle.dump(moveon_dict, f)
+                with open('./moveon_dict/posenet_exit_e{}_b{}.json'.format(self.split_point, self.batch_size), "w") as f:
+                    json.dump(moveon_dict, f)
                 plt.savefig('./moveon_dict/posenet_hist_data_e{}_b{}.png'.format(self.split_point, self.batch_size))
             else:
-                with open('./moveon_dict/posenet_exit_e{}_l{}_b{}.pkl'.format(self.split_point, self.last_exit, self.batch_size), "wb") as f:
-                    pickle.dump(moveon_dict, f)
+                with open('./moveon_dict/posenet_exit_e{}_l{}_b{}.json'.format(self.split_point, self.last_exit, self.batch_size), "w") as f:
+                    json.dump(moveon_dict, f)
                 plt.savefig('./moveon_dict/posenet_hist_data_e{}_l{}_b{}.png'.format(self.split_point, self.last_exit, self.batch_size))
 
             plt.close()
@@ -672,14 +673,14 @@ class convert_openseg:
         if self.last_exit == None:
             last_moveon_dict = dict()
         else:
-            with open('./moveon_dict/openseg_exit_e{}_b{}.pkl'.format(self.last_exit, self.batch_size), 'rb') as f:
-                last_moveon_dict = pickle.load(f)
+            with open('./moveon_dict/openseg_exit_e{}_b{}.json'.format(self.last_exit, self.batch_size), 'rb') as f:
+                last_moveon_dict = json.load(f)
 
         for i, data_dict in enumerate(val_loader):
             (inputs, targets), batch_size = data_helper.prepare_data(data_dict)
             moveon_dict[i] = []
             if self.last_exit == None:
-                last_moveon_dict[i] = [1]*len(targets)
+                last_moveon_dict[str(i)] = [1]*len(targets)
 
             with torch.no_grad():
                 outputs = net(*inputs)
@@ -688,7 +689,7 @@ class convert_openseg:
                 metas = data_dict["meta"]
                 
                 for j in range(outputs[1].shape[0]):
-                    if last_moveon_dict[i][j] == 1:
+                    if last_moveon_dict[str(i)][j] == 1:
                         output_s1 = outputs[1].permute(0, 2, 3, 1)[j].cpu().numpy()
                         output_s2 = outputs[3].permute(0, 2, 3, 1)[j].cpu().numpy()
                         final_output = self.validate_openseg(i, output_s1, output_s2)
@@ -717,8 +718,8 @@ class convert_openseg:
                 # print("mIoU_s2: {}".format(mIoU_s2.avg))
                 # print("moveon_ratio: {}".format(self.moveon_ratio.avg))
 
-            if sum(last_moveon_dict[i]) > 0:
-                self.hist_data.append(sum(moveon_dict[i])/sum(last_moveon_dict[i]))
+            if sum(last_moveon_dict[str(i)]) > 0:
+                self.hist_data.append(sum(moveon_dict[i])/sum(last_moveon_dict[str(i)]))
             else:
                 self.hist_data.append(0)
 
@@ -726,12 +727,12 @@ class convert_openseg:
         print(cnts[0])
 
         if self.last_exit == None:
-            with open('./moveon_dict/openseg_exit_e{}_b{}.pkl'.format(self.split_point, self.batch_size), "wb") as f:
-                pickle.dump(moveon_dict, f)
+            with open('./moveon_dict/openseg_exit_e{}_b{}.json'.format(self.split_point, self.batch_size), "w") as f:
+                json.dump(moveon_dict, f)
             plt.savefig('./moveon_dict/openseg_hist_data_e{}_b{}.png'.format(self.split_point, self.batch_size))
         else:
-            with open('./moveon_dict/openseg_exit_e{}_l{}_b{}.pkl'.format(self.split_point, self.last_exit, self.batch_size), "wb") as f:
-                pickle.dump(moveon_dict, f)
+            with open('./moveon_dict/openseg_exit_e{}_l{}_b{}.json'.format(self.split_point, self.last_exit, self.batch_size), "w") as f:
+                json.dump(moveon_dict, f)
             plt.savefig('./moveon_dict/openseg_hist_data_e{}_l{}_b{}.png'.format(self.split_point, self.last_exit, self.batch_size))
 
         plt.close()
@@ -1018,32 +1019,32 @@ class convert_bert:
         if self.last_exit == None:
             last_moveon_dict = dict()
         else:
-            with open('./moveon_dict/{}_exit_e{}_b{}.pkl'.format(self.task_name, self.last_exit, self.batch_size), 'rb') as f:
-                last_moveon_dict = pickle.load(f)
+            with open('./moveon_dict/{}_exit_e{}_b{}.json'.format(self.task_name, self.last_exit, self.batch_size), 'rb') as f:
+                last_moveon_dict = json.load(f)
 
         for i, (eval_dataset, task) in enumerate(zip(eval_datasets, tasks)):
 
             if self.last_exit == None:
-                last_moveon_dict[i] = [1]*len(eval_dataset)
+                last_moveon_dict[str(i)] = [1]*len(eval_dataset)
 
             predictions = eval_eehead.predict(eval_dataset, metric_key_prefix="predict").predictions
             final_predictions = eval_finalhead.predict(eval_dataset, metric_key_prefix="predict").predictions
 
             pass_acc, moveon_acc, moveon_indicator = self.validate_bert(i, predictions, final_predictions,
-                                 torch.tensor(last_moveon_dict[i], dtype=torch.bool), eval_dataset)
+                                 torch.tensor(last_moveon_dict[str(i)], dtype=torch.bool), eval_dataset)
 
             moveon_cnt = sum(moveon_indicator)
 
             passAcc.update(pass_acc, len(eval_dataset))
             moveonAcc.update(moveon_acc, len(eval_dataset))
-            moveonRatio.update(moveon_cnt/sum(last_moveon_dict[i]), len(eval_dataset))
+            moveonRatio.update(moveon_cnt/sum(last_moveon_dict[str(i)]), len(eval_dataset))
             avgAcc.update(passAcc.val*(1-moveonRatio.val)+moveonAcc.val*moveonRatio.val, len(eval_dataset))
 
         splited_moveon_indicator = [moveon_indicator[i:i+self.batch_size] for i in range(0,len(moveon_indicator), self.batch_size)]
         splited_last_moveon_dict = [last_moveon_dict[0][i:i+self.batch_size] for i in range(0,len(last_moveon_dict[0]), self.batch_size)]
         for i in range(int(len(last_moveon_dict[0])/self.batch_size) + 1):
-            if sum(splited_last_moveon_dict[i]) != 0:
-                splited_moveon_ratio = sum(splited_moveon_indicator[i])/sum(splited_last_moveon_dict[i])
+            if sum(splited_last_moveon_dict[str(i)]) != 0:
+                splited_moveon_ratio = sum(splited_moveon_indicator[i])/sum(splited_last_moveon_dict[str(i)])
                 self.hist_data.append(splited_moveon_ratio.item())
             else:
                 self.hist_data.append(0)
@@ -1058,12 +1059,12 @@ class convert_bert:
         print(cnts[0])
 
         if self.last_exit == None:
-            with open('./moveon_dict/{}_exit_e{}_b{}.pkl'.format(self.task_name, self.split_point, self.batch_size), "wb") as f:
-                pickle.dump(self.moveon_dict, f)
+            with open('./moveon_dict/{}_exit_e{}_b{}.json'.format(self.task_name, self.split_point, self.batch_size), "w") as f:
+                json.dump(self.moveon_dict, f)
             plt.savefig('./moveon_dict/{}_hist_data_e{}_b{}.png'.format(self.task_name, self.split_point, self.batch_size))
         else:
-            with open('./moveon_dict/{}_exit_e{}_l{}_b{}.pkl'.format(self.task_name, self.split_point, self.last_exit, self.batch_size), "wb") as f:
-                pickle.dump(self.moveon_dict, f)
+            with open('./moveon_dict/{}_exit_e{}_l{}_b{}.json'.format(self.task_name, self.split_point, self.last_exit, self.batch_size), "w") as f:
+                json.dump(self.moveon_dict, f)
             plt.savefig('./moveon_dict/{}_hist_data_e{}_l{}_b{}.png'.format(self.task_name, self.split_point, self.last_exit, self.batch_size))
 
         plt.close()
@@ -1525,6 +1526,11 @@ def grid_search(task_name, split_point, batch_size):
         pass
 
 if __name__ == '__main__':
+    inst = convert_resnet(split_point=22, batch_size=128, last_exit=9)
+    net_wth_eehead, net_wth_finalhead = inst.load_resnet()
+    inst.eval_resnet(net_wth_eehead, net_wth_finalhead)
+    exit()
+
     task = 'resnet'
     mode = 'test'
 
@@ -1532,12 +1538,13 @@ if __name__ == '__main__':
         if task == 'resnet':
             for split_point in range(1, 34):
                 batch_size = 128
-                opt_p_thres = grid_search(task, split_point, batch_size)
+                # opt_p_thres = grid_search(task, split_point, batch_size)
+                opt_p_thres = 0.75
                 inst = convert_resnet(split_point=split_point, batch_size=batch_size, last_exit=None)
                 inst.p_thres = opt_p_thres
-                with open('/home/slzhang/projects/ETBA/Train/opt_thres_record/resnet.csv', 'a+') as f:
-                    writer = csv.writer(f)
-                    writer.writerow([split_point, opt_p_thres])
+                # with open('/home/slzhang/projects/ETBA/Train/opt_thres_record/resnet.csv', 'a+') as f:
+                #     writer = csv.writer(f)
+                #     writer.writerow([split_point, opt_p_thres])
                 net_wth_eehead, net_wth_finalhead = inst.load_resnet()
                 inst.eval_resnet(net_wth_eehead, net_wth_finalhead)
 
