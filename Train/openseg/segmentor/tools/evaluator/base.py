@@ -1,5 +1,6 @@
 import os
 
+import wandb
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -54,6 +55,7 @@ class _BaseEvaluator:
                         'F1 Score: {} Precision: {} Recall: {}\n'
                         .format(*rs.get_F1_score())
                     )
+        return rs.get_mean_iou()
 
     def prepare_validaton(self):
         """

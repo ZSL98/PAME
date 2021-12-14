@@ -62,7 +62,6 @@ def parse_args():
     parser.add_argument('--workers',
                         help='num of dataloader workers',
                         type=int)
-    parser.add_argument('--split_point', type=int)
 
     args = parser.parse_args()
 
@@ -81,16 +80,16 @@ def main():
     args = parse_args()
     reset_config(config, args)
 
-    wandb.init(
-        # Set entity to specify your username or team name
-        # ex: entity="carey",
-        # Set the project where this run will be logged
-        project="posenet_train", 
-        name="split_point:"+str(args.split_point),
-        # Track hyperparameters and run metadata
-        config={
-        "architecture": "resnet101",
-        "dataset": "mpii",})
+    # wandb.init(
+    #     # Set entity to specify your username or team name
+    #     # ex: entity="carey",
+    #     # Set the project where this run will be logged
+    #     project="posenet_train", 
+    #     name="finetune",
+    #     # Track hyperparameters and run metadata
+    #     config={
+    #     "architecture": "resnet101",
+    #     "dataset": "mpii",})
 
     logger, final_output_dir, tb_log_dir = create_logger(
         config, args.cfg, 'train')
@@ -103,9 +102,10 @@ def main():
     torch.backends.cudnn.deterministic = config.CUDNN.DETERMINISTIC
     torch.backends.cudnn.enabled = config.CUDNN.ENABLED
 
-    model = eval('models.'+config.MODEL.NAME+'.get_pose_net_with_only_exit')(
-        config, is_train=True, start_point = args.split_point
-    )
+    model = models.pose_resnet.get_pose_net_with_multi_exit(config, is_train=True, exit_list=[9,16])
+    # model = eval('models.'+config.MODEL.NAME+'.get_pose_net_with_multi_exit')(
+    #     config, is_train=True, exit_list = [8]
+    # )
 
     # copy model file
     this_dir = os.path.dirname(__file__)
@@ -123,7 +123,7 @@ def main():
                              3,
                              config.MODEL.IMAGE_SIZE[1],
                              config.MODEL.IMAGE_SIZE[0]))
-    writer_dict['writer'].add_graph(model, (dump_input, ), verbose=False)
+    # writer_dict['writer'].add_graph(model, (dump_input, ), verbose=False)
 
     gpus = [int(i) for i in config.GPUS.split(',')]
     model = torch.nn.DataParallel(model, device_ids=gpus).cuda()
@@ -180,7 +180,6 @@ def main():
 
     best_perf = 0.0
     best_model = False
-    metric_record = []
     for epoch in range(config.TRAIN.BEGIN_EPOCH, config.TRAIN.END_EPOCH):
         lr_scheduler.step()
 
@@ -194,7 +193,6 @@ def main():
                                   criterion, final_output_dir, tb_log_dir,
                                   writer_dict)
 
-        metric_record.append(perf_indicator)
         if perf_indicator > best_perf:
             best_perf = perf_indicator
             best_model = True
@@ -208,22 +206,14 @@ def main():
             'state_dict': model.state_dict(),
             'perf': perf_indicator,
             'optimizer': optimizer.state_dict(),
-        }, best_model, final_output_dir, filename='checkpoint.pth.'+str(args.split_point))
+        }, best_model, final_output_dir, filename='checkpoint.pth.tar.finetuned')
 
-        if epoch%5 == 0: 
-            final_model_state_file = os.path.join(final_output_dir,
-                                                'checkpoint_{}epochs_s{}.pth'.format(epoch, args.split_point))
-            logger.info('saving final model state to {}'.format(
-                final_model_state_file))
-            torch.save(model.module.state_dict(), final_model_state_file)
-
-        diff = [metric_record[i+1]-metric_record[i] for i in range(len(metric_record)-1)]
-        if len([i for i in diff[-3:] if i < 0.25]) == 3:
-            writer_dict['writer'].close()
-            exit()
-
-
-    # writer_dict['writer'].close()
+    final_model_state_file = os.path.join(final_output_dir,
+                                          'final_state.pth.tar.finetuned')
+    logger.info('saving final model state to {}'.format(
+        final_model_state_file))
+    torch.save(model.module.state_dict(), final_model_state_file)
+    writer_dict['writer'].close()
 
 
 if __name__ == '__main__':

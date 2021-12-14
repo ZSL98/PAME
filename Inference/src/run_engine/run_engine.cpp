@@ -581,15 +581,10 @@ std::vector<float> Profiler::execute_multi_stage(const bool separate_or_not, con
     srcPtr = buffer_s2.getImmediateBuffer(1);
     samplesCommon::BufferManager buffer_s3(mEngine_list[engine_idx_3], batch_size_s1_,
                             srcPtr, fake_copy_list, next_batch_size, copy_method);
-
-    auto status_s3 = mContext_list[engine_idx_3]->enqueueV2(buffer_s2.getDeviceBindings().data(), stream_1, nullptr);
+    auto status_s3 = mContext_list[engine_idx_3]->enqueueV2(buffer_s3.getDeviceBindings().data(), stream_1, nullptr);
     if (!status_s3) {
         std::cout << "Error when inferring S3 model" << std::endl;
     }
-    // Max_reduction
-    exitPtr = buffer_s3.getImmediateBuffer(2);
-    exitPtr_device = static_cast<float*>(exitPtr->deviceBuffer.data());
-    max_reduction_r(exitPtr_device, copy_list, stream_1);
 
     CUDACHECK(cudaDeviceSynchronize());
     CUDACHECK(cudaEventRecord(infer_start, stream_1));
@@ -614,8 +609,6 @@ std::vector<float> Profiler::execute_multi_stage(const bool separate_or_not, con
             CUDACHECK(cudaDeviceSynchronize());
             continue;
         }
-
-        std::cout << next_batch_size << std::endl;
 
         engine_idx_2 = (next_batch_size-1)/(batch_size_s1_/4)+4;
         std::shared_ptr<samplesCommon::ManagedBuffer> manBuf_ptr = buffer_s1.getImmediateBuffer(1);
@@ -645,7 +638,7 @@ std::vector<float> Profiler::execute_multi_stage(const bool separate_or_not, con
             continue;
         }
 
-        engine_idx_3 = (next_batch_size-1)/(batch_size_s1_/4)+4;
+        engine_idx_3 = (next_batch_size-1)/(batch_size_s1_/4)+8;
         manBuf_ptr = buffer_s2.getImmediateBuffer(1);
         new_manBuf = buffer_s3.getImmediateBuffer(0);
         dstPtr_ = static_cast<float*>(new_manBuf->deviceBuffer.data());

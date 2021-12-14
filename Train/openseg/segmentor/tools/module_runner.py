@@ -234,7 +234,7 @@ class ModuleRunner(object):
                 "last_iters"
             ) >= self.configer.get("checkpoints", "save_iters"):
                 latest_name = "{}_iters{}.pth".format(
-                    self.configer.get("checkpoints", "checkpoints_name"),
+                    self.configer.get("checkpoints", "checkpoints_name") + str(self.configer.get("network", "split_point")),
                     self.configer.get("iters"),
                 )
                 torch.save(state, os.path.join(checkpoints_dir, latest_name))

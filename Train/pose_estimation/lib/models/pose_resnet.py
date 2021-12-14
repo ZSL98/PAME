@@ -620,6 +620,200 @@ class PoseResNetwthOnlyExit(nn.Module):
             logger.error('=> please download it first')
             raise ValueError('imagenet pretrained model does not exist')
 
+class PoseResNetwthMultiExit(nn.Module):
+    def __init__(self, block, layers, cfg, exit_list, **kwargs):
+        super(PoseResNetwthMultiExit, self).__init__()
+        extra = cfg.MODEL.EXTRA
+        self.deconv_with_bias = extra.DECONV_WITH_BIAS
+        self.backbone = list()
+        self.module_length = list()
+        self.exit_list = exit_list
+        for i in range(len(exit_list)):
+            print('creating network')
+            self.backbone.append(backbone_s1(start_point=exit_list[i], end_point=exit_list[i]))
+
+        # self.backbone_s2 = backbone_s2(start_point=start_point, end_point=start_point)
+        for i in range(len(exit_list)):
+            if i == 0:
+                for item in list(self.backbone[i].children()):
+                    print(item)
+                flatt_model = get_children(self.backbone[i])
+                print(len(flatt_model))
+                for item in flatt_model:
+                    print(item)
+                num = 0
+                for k,v in self.backbone[i].named_parameters():
+                    num = num+1
+                    print(k)
+                print(num)
+            # if i != 0:
+            #     self.backbone[i] = nn.Sequential(*(list(self.backbone[i].children())[7:]))
+
+        self.inplanes = 2048
+        self.deconv_layers = self._make_deconv_layer(
+            extra.NUM_DECONV_LAYERS,
+            extra.NUM_DECONV_FILTERS,
+            extra.NUM_DECONV_KERNELS,
+        )
+
+        self.final_layer = nn.Conv2d(
+            in_channels=extra.NUM_DECONV_FILTERS[-1],
+            out_channels=cfg.MODEL.NUM_JOINTS,
+            kernel_size=extra.FINAL_CONV_KERNEL,
+            stride=1,
+            padding=1 if extra.FINAL_CONV_KERNEL == 3 else 0
+        )
+
+    def _get_deconv_cfg(self, deconv_kernel, index):
+        if deconv_kernel == 4:
+            padding = 1
+            output_padding = 0
+        elif deconv_kernel == 3:
+            padding = 1
+            output_padding = 1
+        elif deconv_kernel == 2:
+            padding = 0
+            output_padding = 0
+
+        return deconv_kernel, padding, output_padding
+
+    def _make_deconv_layer(self, num_layers, num_filters, num_kernels):
+        assert num_layers == len(num_filters), \
+            'ERROR: num_deconv_layers is different len(num_deconv_filters)'
+        assert num_layers == len(num_kernels), \
+            'ERROR: num_deconv_layers is different len(num_deconv_filters)'
+
+        layers = []
+        for i in range(num_layers):
+            kernel, padding, output_padding = \
+                self._get_deconv_cfg(num_kernels[i], i)
+
+            planes = num_filters[i]
+            layers.append(
+                nn.ConvTranspose2d(
+                    in_channels=self.inplanes,
+                    out_channels=planes,
+                    kernel_size=kernel,
+                    stride=2,
+                    padding=padding,
+                    output_padding=output_padding,
+                    bias=self.deconv_with_bias))
+            layers.append(nn.BatchNorm2d(planes, momentum=BN_MOMENTUM))
+            layers.append(nn.ReLU(inplace=True))
+            self.inplanes = planes
+
+        return nn.Sequential(*layers)
+
+    def forward(self, x):
+        output = []
+        for i in range(len(self.exit_list)):
+            x, x_exit = self.backbone[i](x)
+            x_exit = self.deconv_layers(x_exit)
+            x_exit = self.final_layer(x_exit)
+            output.append(x_exit)
+
+        return output
+
+    def init_weights(self, pretrained=''):
+        # for k,v in self.state_dict().items():
+        #     print(k)
+        if os.path.isfile(pretrained):
+            logger.info('=> init head deconv weights from normal distribution')
+
+            # for name, m in self.named_parameters():
+            #     m.requires_grad = False
+
+            for name, m in self.deconv_layers.named_modules():
+                if isinstance(m, nn.ConvTranspose2d):
+                    logger.info('=> init {}.weight as normal(0, 0.001)'.format(name))
+                    logger.info('=> init {}.bias as 0'.format(name))
+                    nn.init.normal_(m.weight, std=0.001)
+                    if self.deconv_with_bias:
+                        nn.init.constant_(m.bias, 0)
+                elif isinstance(m, nn.BatchNorm2d):
+                    logger.info('=> init {}.weight as 1'.format(name))
+                    logger.info('=> init {}.bias as 0'.format(name))
+                    nn.init.constant_(m.weight, 1)
+                    nn.init.constant_(m.bias, 0)
+            logger.info('=> init head final conv weights from normal distribution')
+            for m in self.final_layer.modules():
+                if isinstance(m, nn.Conv2d):
+                    # nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+                    logger.info('=> init {}.weight as normal(0, 0.001)'.format(name))
+                    logger.info('=> init {}.bias as 0'.format(name))
+                    nn.init.normal_(m.weight, std=0.001)
+                    nn.init.constant_(m.bias, 0)
+
+            # for name, m in self.head_deconv_layers.named_parameters():
+            #     m.requires_grad = True
+            # for name, m in self.head_final_layer.named_parameters():
+            #     m.requires_grad = True
+
+            # pretrained_state_dict = torch.load(pretrained)
+            logger.info('=> loading pretrained model {}'.format(pretrained))
+            # self.load_state_dict(pretrained_state_dict, strict=False)
+            checkpoint = torch.load(pretrained)
+            dict_trained = checkpoint.copy()
+            dict_new = OrderedDict()
+
+            for k,v in self.state_dict().items():
+                if 'num_batches_tracked' not in k:
+                    if 'backbone_s1.pre' in k:
+                        dict_new[k] = dict_trained[k[16:]]
+                    elif 'backbone_s1.exit' in k:
+                        if len(self.backbone_s1.exit) == 1:
+                            dict_new[k] = dict_trained['layer4.0.'+k[19:]]
+                        elif len(self.backbone_s1.exit) == 2:
+                            if 'exit.0' in k:
+                                dict_new[k] = dict_trained['layer3.0.'+k[19:]]
+                            elif 'exit.1' in k:
+                                dict_new[k] = dict_trained['layer4.0.'+k[19:]]
+                        elif len(self.backbone_s1.exit) == 3:
+                            if 'exit.0' in k:
+                                dict_new[k] = dict_trained['layer2.0.'+k[19:]]
+                            elif 'exit.1' in k:
+                                dict_new[k] = dict_trained['layer3.0.'+k[19:]]
+                            elif 'exit.2' in k:
+                                dict_new[k] = dict_trained['layer4.0.'+k[19:]]
+                    elif 'deconv' in k or 'final' in k:
+                        dict_new[k] = dict_trained[k]
+                    else:
+                        dict_new[k] = dict_trained[k[12:]]
+
+            # for k,v in dict_new.items():
+            #     print(k)
+            # if isinstance(checkpoint, OrderedDict):
+            #     state_dict = checkpoint
+            # elif isinstance(checkpoint, dict) and 'state_dict' in checkpoint:
+            #     state_dict_old = checkpoint['state_dict']
+            #     state_dict = OrderedDict()
+            #     # delete 'module.' because it is saved from DataParallel module
+
+            #     for key in state_dict_old.keys():
+            #         if key.startswith('module.'):
+            #             # state_dict[key[7:]] = state_dict[key]
+            #             # state_dict.pop(key)
+            #             state_dict[key[7:]] = state_dict_old[key]
+            #         else:
+            #             state_dict[key] = state_dict_old[key]
+            # else:
+            #     raise RuntimeError(
+            #         'No state_dict found in checkpoint file {}'.format(pretrained))
+
+            # freeze the backbone parameters
+            for k,v in self.named_parameters():
+                if 'backbone' in k and 'exit' not in k:
+                    v.requires_grad=False
+                else:
+                    v.requires_grad=True
+
+            self.load_state_dict(dict_new, strict=False)
+
+        else:
+            logger.error('=> imagenet pretrained model dose not exist')
+            logger.error('=> please download it first')
+            raise ValueError('imagenet pretrained model does not exist')
+
 
 resnet_spec = {18: (BasicBlock, [2, 2, 2, 2]),
                34: (BasicBlock, [3, 4, 6, 3]),
@@ -709,3 +903,45 @@ def get_pose_net_with_only_exit(cfg, is_train, start_point, **kwargs):
     print("Model obtained!")
 
     return model
+
+def get_pose_net_with_multi_exit(cfg, is_train, exit_list, **kwargs):
+    num_layers = cfg.MODEL.EXTRA.NUM_LAYERS
+    style = cfg.MODEL.STYLE
+
+    block_class, layers = resnet_spec[num_layers]
+
+    if style == 'caffe':
+        block_class = Bottleneck_CAFFE
+
+    model = PoseResNetwthMultiExit(block_class, layers, cfg, exit_list, **kwargs)
+
+    # for k,v in model.backbone[1].named_parameters():
+    #     print(k)
+
+    # baseModel = torch.nn.Sequential(*(list(model.backbone[1].modules())[:-1]))
+    # for k,v in baseModel[0].named_parameters():
+    #     print(k)
+
+    # if is_train and cfg.MODEL.INIT_WEIGHTS:
+    #     # model.init_weights(cfg.MODEL.PRETRAINED)
+    #     model.init_weights(cfg.MODEL.PRETRAINED_WITH_HEAD)
+
+    print("Model obtained!")
+
+    return model
+
+def get_children(model: torch.nn.Module):
+    # get children form model!
+    children = list(model.children())
+    flatt_children = []
+    if children == []:
+        # if model has no children; model is last child! :O
+        return model
+    else:
+    # look for children from children... to the last child!
+        for child in children:
+            try:
+                flatt_children.extend(get_children(child))
+            except TypeError:
+                flatt_children.append(get_children(child))
+    return flatt_children

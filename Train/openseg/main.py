@@ -20,6 +20,7 @@ import random
 import time
 import pdb
 
+import wandb
 import torch
 import torch.backends.cudnn as cudnn
 
@@ -508,6 +509,13 @@ if __name__ == "__main__":
         log_format=configer.get("logging", "log_format"),
         rewrite=configer.get("logging", "rewrite"),
     )
+
+    wandb.init(
+        project="openseg_train", 
+        name="split_point:"+str(args_parser.split_point),
+        config={
+        "architecture": "resnet101",
+        "dataset": "cityscapes",})
 
     model = None
     if configer.get("method") == "fcn_segmentor":

@@ -377,6 +377,8 @@ def validate(config, val_loader, val_dataset, model, criterion, output_dir,
                 save_debug_images(config, input, meta, target, pred*4, output,
                                   prefix)
 
+        # wandb.log({"acc":acc.avg, "loss":loss.avg})
+
         name_values, perf_indicator = val_dataset.evaluate(
             config, all_preds, output_dir, all_boxes, image_path,
             filenames, imgnums)
@@ -400,6 +402,7 @@ def validate(config, val_loader, val_dataset, model, criterion, output_dir,
                 writer.add_scalars('valid', dict(name_values), global_steps)
             writer_dict['valid_global_steps'] = global_steps + 1
 
+    wandb.log({"perf_indicator":perf_indicator})
     return perf_indicator
 
 

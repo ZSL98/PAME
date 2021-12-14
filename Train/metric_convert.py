@@ -323,7 +323,7 @@ class convert_posenet:
 
     def load_posenet(self):
         net_wth_finalhead = torch.load("/home/slzhang/projects/ETBA/Train/pose_estimation/models/pytorch/pose_mpii/pose_resnet_101_384x384.pth.tar")
-        net_wth_eehead = torch.load("/home/slzhang/projects/ETBA/Train/pose_estimation/output/mpii/pose_resnet_101/384x384_d256x3_adam_lr1e-3/checkpoint.pth.tar."+str(self.split_point))
+        net_wth_eehead = torch.load("/home/slzhang/projects/ETBA/Train/pose_estimation/output/mpii_epoch3/pose_resnet_101/384x384_d256x3_adam_lr1e-3/checkpoint.pth.tar."+str(self.split_point))
 
         # for k,v in net_wth_eehead['state_dict'].items():
         #     print(k)
@@ -595,16 +595,15 @@ class convert_openseg:
     def load_openseg(self):
         # load the backbone of the network with dual-heads
 
-        net_wth_finalhead = torch.load("/home/slzhang/projects/ETBA/Train/openseg/checkpoints/cityscapes/ocrnet_resnet101_s33_latest.pth")
+        net_wth_finalhead = torch.load("/home/slzhang/projects/ETBA/Train/openseg/checkpoints/spatial_ocrnet_deepbase_resnet101_dilated8_1_latest.pth")
         # for k,v in net_wth_finalhead['state_dict'].items():
         #     print(k)
 
         config = Configer(configs="/home/slzhang/projects/ETBA/Train/openseg/configs/cityscapes/R_101_D_8_with_exit.json")
         config.update(["network", "split_point"], split_point)
-        net_wth_eehead = torch.load("/home/slzhang/projects/ETBA/Train/openseg/checkpoints/cityscapes/ocrnet_resnet101_s"+str(split_point)+"_latest.pth")
+        net_wth_eehead = torch.load("/home/slzhang/projects/ETBA/Train/openseg/checkpoints/cityscapes_3000_iters/ocrnet_resnet101_s"+str(split_point)+"_latest.pth")
         # for k,v in net_wth_eehead['state_dict'].items():
         #     print(k)
-
 
         net_wth_dualheads = SpatialOCRNet_with_exit(config)
         # for k,v in net_wth_dualheads.state_dict().items():
@@ -695,7 +694,7 @@ class convert_openseg:
                         final_output = self.validate_openseg(i, output_s1, output_s2)
 
                         labelmap = np.argmax(final_output, axis=-1)
-                        ori_target = metas[0]['ori_target']
+                        ori_target = metas[j]['ori_target']
                         RunningScore = rslib.RunningScore(config)
                         RunningScore.update(labelmap[None], ori_target[None])
                         rs = RunningScore.get_mean_iou()
@@ -747,7 +746,6 @@ class convert_openseg:
         # print(pixel_confidence)
         pixel_over_threshold = pixel_confidence > pixel_threshold
         num_pixel_over_threshold = pixel_over_threshold.sum()
-        # print(num_pixel_over_threshold)
         if num_pixel_over_threshold > num_threshold:
             self.moveon_ratio.update(0, 1)
             return output_s1
@@ -1450,7 +1448,7 @@ def grid_search(task_name, split_point, batch_size):
         inst = convert_resnet(split_point=split_point, batch_size=batch_size, last_exit=None)
         net_wth_eehead, net_wth_finalhead = inst.load_resnet()
 
-        for p_thres in np.arange(0, 1.05, 0.05):
+        for p_thres in np.arange(0.05, 1.05, 0.1):
             inst.p_thres = p_thres
             metric_eehead, metric_finalhead, moveon_ratio, metric_avg = inst.eval_resnet(net_wth_eehead, net_wth_finalhead)
             print('p_thres: ' + str(p_thres) + '  moveon_ratio: ' + str(moveon_ratio) +'  metric_avg: ' + str(metric_avg))
@@ -1479,7 +1477,7 @@ def grid_search(task_name, split_point, batch_size):
                     writer.writerow([p_thres, n_thres, acc_pass, acc_moveon, moveon_ratio, metric_avg])
         
         result = pd.read_csv('/home/slzhang/projects/ETBA/Train/conversion_results/posenet_results_{}.csv'.format(split_point), header=None)
-        result_satisfied = result[result.iloc[:,5]>85]
+        result_satisfied = result[result.iloc[:,5]>0.8982*0.95]
         opt_p_thres = result_satisfied[result_satisfied.iloc[:,4] == result_satisfied.iloc[:,4].min()].iloc[:,0]
         opt_n_thres = result_satisfied[result_satisfied.iloc[:,4] == result_satisfied.iloc[:,4].min()].iloc[:,1]
 
@@ -1490,8 +1488,10 @@ def grid_search(task_name, split_point, batch_size):
 
         inst = convert_openseg(split_point=split_point, batch_size=batch_size, last_exit=None)
         net = inst.load_openseg()
-        for p_thres in np.arange(1, 10, 1):
-            for n_thres in [100000, 200000, 500000, 1000000]:
+        for p_thres in np.arange(5, 10, 1):
+            for n_thres in [5000000, 500000, 700000, 900000, 1100000]:
+                inst.p_thres = p_thres
+                inst.n_thres = n_thres
                 metric_eehead, metric_finalhead, moveon_ratio, metric_avg = inst.eval_openseg(net)
                 print('p_thres: ' + str(p_thres) + '  n_thres: ' + str(n_thres) + '  moveon_ratio: ' + str(moveon_ratio) +'  metric_avg: ' + str(metric_avg))
                 with open('/home/slzhang/projects/ETBA/Train/conversion_results/openseg_results_{}.csv'.format(split_point), 'a+') as f:
@@ -1499,7 +1499,7 @@ def grid_search(task_name, split_point, batch_size):
                     writer.writerow([p_thres, n_thres, metric_eehead, metric_finalhead, moveon_ratio, metric_avg])
 
         result = pd.read_csv('/home/slzhang/projects/ETBA/Train/conversion_results/openseg_results_{}.csv'.format(split_point), header=None)
-        result_satisfied = result[result.iloc[:,5]>80]
+        result_satisfied = result[result.iloc[:,5]>0.77058*0.95]
         opt_p_thres = result_satisfied[result_satisfied.iloc[:,4] == result_satisfied.iloc[:,4].min()].iloc[:,0]
         opt_n_thres = result_satisfied[result_satisfied.iloc[:,4] == result_satisfied.iloc[:,4].min()].iloc[:,1]
 
@@ -1526,20 +1526,20 @@ def grid_search(task_name, split_point, batch_size):
         pass
 
 if __name__ == '__main__':
-    inst = convert_resnet(split_point=22, batch_size=128, last_exit=9)
-    net_wth_eehead, net_wth_finalhead = inst.load_resnet()
-    inst.eval_resnet(net_wth_eehead, net_wth_finalhead)
-    exit()
+    # inst = convert_resnet(split_point=22, batch_size=128, last_exit=9)
+    # net_wth_eehead, net_wth_finalhead = inst.load_resnet()
+    # inst.eval_resnet(net_wth_eehead, net_wth_finalhead)
+    # exit()
 
-    task = 'resnet'
+    task = 'openseg'
     mode = 'test'
 
     if mode == 'test':
         if task == 'resnet':
-            for split_point in range(1, 34):
+            for split_point in [1,4,7,10,13,16,19,22,25,28,31]:
                 batch_size = 128
-                # opt_p_thres = grid_search(task, split_point, batch_size)
-                opt_p_thres = 0.75
+                opt_p_thres = grid_search(task, split_point, batch_size)
+                # opt_p_thres = 0.75
                 inst = convert_resnet(split_point=split_point, batch_size=batch_size, last_exit=None)
                 inst.p_thres = opt_p_thres
                 # with open('/home/slzhang/projects/ETBA/Train/opt_thres_record/resnet.csv', 'a+') as f:
@@ -1549,22 +1549,31 @@ if __name__ == '__main__':
                 inst.eval_resnet(net_wth_eehead, net_wth_finalhead)
 
         elif task == 'posenet':
-            split_point = 15
-            batch_size = 128
-            opt_p_thres, opt_n_thres = grid_search(task, split_point, batch_size)
-            inst = convert_posenet(split_point=split_point, batch_size=batch_size, last_exit=None)
-            inst.p_thres = opt_p_thres
-            inst.n_thres = opt_n_thres
-            inst.eval_posenet()
+            for split_point in [28,31]:
+                batch_size = 128
+                opt_p_thres, opt_n_thres = grid_search(task, split_point, batch_size)
+                inst = convert_posenet(split_point=split_point, batch_size=batch_size, last_exit=None)
+                with open('/home/slzhang/projects/ETBA/Train/opt_thres_record/posenet_epoch3.csv', 'a+') as f:
+                    writer = csv.writer(f)
+                    writer.writerow([split_point, opt_p_thres, opt_n_thres])
+                inst.p_thres = opt_p_thres
+                inst.n_thres = opt_n_thres
+                inst.eval_posenet()
 
         elif task == 'openseg':
-            split_point = 15
-            batch_size = 2
-            opt_p_thres, opt_n_thres = grid_search(task, split_point, batch_size)
-            inst = convert_openseg(split_point=split_point, batch_size=batch_size, last_exit=None)
-            inst.p_thres = opt_p_thres
-            inst.n_thres = opt_n_thres
-            inst.eval_openseg()
+            for split_point in [13,16,19,22,25,28]:
+                batch_size = 8
+                opt_p_thres, opt_n_thres = grid_search(task, split_point, batch_size)
+                inst = convert_openseg(split_point=split_point, batch_size=batch_size, last_exit=None)
+                with open('/home/slzhang/projects/ETBA/Train/opt_thres_record/openseg_iteration3000.csv', 'a+') as f:
+                    writer = csv.writer(f)
+                    writer.writerow([split_point, opt_p_thres, opt_n_thres])
+                # opt_p_thres = 7
+                # opt_n_thres = 500000
+                inst.p_thres = opt_p_thres
+                inst.n_thres = opt_n_thres
+                net = inst.load_openseg()
+                inst.eval_openseg(net)
 
         elif task == 'bert':
             split_point = 8

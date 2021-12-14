@@ -18,6 +18,7 @@ import sys
 sys.path.append("/home/slzhang/projects/ETBA/Train/openseg")
 from lib.models.backbones.backbone_selector import BackboneSelector
 from lib.models.tools.module_helper import ModuleHelper
+from lib.models.backbones.resnet.resnet_backbone_with_exit import backbone_s1, backbone_s2
 
 class SpatialOCRNet_with_only_exit(nn.Module):
     """
@@ -30,7 +31,9 @@ class SpatialOCRNet_with_only_exit(nn.Module):
         self.configer = configer
         self.num_classes = self.configer.get('data', 'num_classes')
         self.split_point = self.configer.get('network', 'split_point')
-        self.backbone_s1 = BackboneSelector(configer).get_backbone()
+        # self.backbone_s1 = BackboneSelector(configer).get_backbone()
+        split_point = self.configer.get("network", "split_point")
+        self.backbone_s1 = backbone_s1(start_point=split_point, end_point=split_point, bn_type='implace_abn')
 
         # extra added layers
         if "wide_resnet38" in self.configer.get('network', 'backbone'):
@@ -73,7 +76,7 @@ class SpatialOCRNet_with_only_exit(nn.Module):
 
         # head_checkpoint = torch.load("/home/slzhang/projects/ETBA/Train/openseg/checkpoints/cityscapes/ocrnet_resnet101_s" + \
         #                             str(self.split_point+1) + "_latest.pth")
-        head_checkpoint = torch.load("/home/slzhang/projects/ETBA/Train/openseg/checkpoints/cityscapes/ocrnet_resnet101_s33_latest.pth")
+        head_checkpoint = torch.load("/home/slzhang/projects/ETBA/Train/openseg/checkpoints/spatial_ocrnet_deepbase_resnet101_dilated8_1_latest.pth")
         # head_checkpoint_2 = torch.load("/home/slzhang/projects/ETBA/Train/openseg/checkpoints/cityscapes/ocrnet_resnet101_s8_latest_trained_2.pth")
 
         dict_trained = head_checkpoint['state_dict'].copy()

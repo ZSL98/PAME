@@ -25,3 +25,4 @@ train_ouput*
 *.log
 *.npy
 *.png
+*exit*json
