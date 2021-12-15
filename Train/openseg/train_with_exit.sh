@@ -19,7 +19,7 @@ BACKBONE="resnet101_with_only_exit"
 CONFIGS="configs/cityscapes/R_101_D_8_with_exit.json"
 MODEL_NAME="spatial_ocrnet_with_only_exit"
 LOSS_TYPE="fs_auxce_loss"
-MAX_ITERS=4000
+MAX_ITERS=40000
 
 CHECKPOINTS_NAME="ocrnet_resnet101_s"
 # CHECKPOINTS_NAME="${MODEL_NAME}_${BACKBONE}_"$2

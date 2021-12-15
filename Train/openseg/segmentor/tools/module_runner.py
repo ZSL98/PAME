@@ -204,6 +204,9 @@ class ModuleRunner(object):
                 self.configer.get("checkpoints", "checkpoints_dir"),
             )
 
+        checkpoints_dir = os.path.join(checkpoints_dir,
+                'split_point_' + str(self.configer.get("network", "split_point")),
+            )
         if not os.path.exists(checkpoints_dir):
             os.makedirs(checkpoints_dir)
 

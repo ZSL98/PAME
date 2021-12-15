@@ -38,6 +38,34 @@ class JointsMSELoss(nn.Module):
 
         return loss / num_joints
 
+class MultiExitLoss(nn.Module):
+    def __init__(self, use_target_weight):
+        super(MultiExitLoss, self).__init__()
+        self.criterion = nn.MSELoss(size_average=True)
+        self.use_target_weight = use_target_weight
+
+    def forward(self, output, target, target_weight):
+        loss = 0
+        for i in range(len(output)):
+            batch_size = output[i].size(0)
+            num_joints = output[i].size(1)
+            heatmaps_pred = output[i].reshape((batch_size, num_joints, -1)).split(1, 1)
+            heatmaps_gt = target.reshape((batch_size, num_joints, -1)).split(1, 1)
+
+            for idx in range(num_joints):
+                heatmap_pred = heatmaps_pred[idx].squeeze()
+                heatmap_gt = heatmaps_gt[idx].squeeze()
+                if self.use_target_weight:
+                    loss += 0.5 * self.criterion(
+                        heatmap_pred.mul(target_weight[:, idx]),
+                        heatmap_gt.mul(target_weight[:, idx])
+                    )
+                else:
+                    loss += 0.5 * self.criterion(heatmap_pred, heatmap_gt)
+
+        return loss / num_joints / len(output)
+
+
 class DistillationBasedLoss(nn.Module):
     def __init__(self, C, maxprob, use_target_weight, Tmult=1.05, global_scale=1.0):
         super(DistillationBasedLoss, self).__init__()

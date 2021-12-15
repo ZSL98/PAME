@@ -11,13 +11,14 @@ from __future__ import print_function
 import os
 import logging
 
+import copy
 import torch
 import torch.nn as nn
 from collections import OrderedDict
 
 import sys
 sys.path.append("/home/slzhang/projects/ETBA/Inference/src/exit_placement")
-from networks import backbone_s1, backbone_s2
+from networks import backbone_s1, backbone_s2, Bottleneck
 
 BN_MOMENTUM = 0.1
 logger = logging.getLogger(__name__)
@@ -61,45 +62,45 @@ class BasicBlock(nn.Module):
         return out
 
 
-class Bottleneck(nn.Module):
-    expansion = 4
+# class Bottleneck(nn.Module):
+#     expansion = 4
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None):
-        super(Bottleneck, self).__init__()
-        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(planes, momentum=BN_MOMENTUM)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-                               padding=1, bias=False)
-        self.bn2 = nn.BatchNorm2d(planes, momentum=BN_MOMENTUM)
-        self.conv3 = nn.Conv2d(planes, planes * self.expansion, kernel_size=1,
-                               bias=False)
-        self.bn3 = nn.BatchNorm2d(planes * self.expansion,
-                                  momentum=BN_MOMENTUM)
-        self.relu = nn.ReLU(inplace=True)
-        self.downsample = downsample
-        self.stride = stride
+#     def __init__(self, inplanes, planes, stride=1, downsample=None):
+#         super(Bottleneck, self).__init__()
+#         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
+#         self.bn1 = nn.BatchNorm2d(planes, momentum=BN_MOMENTUM)
+#         self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
+#                                padding=1, bias=False)
+#         self.bn2 = nn.BatchNorm2d(planes, momentum=BN_MOMENTUM)
+#         self.conv3 = nn.Conv2d(planes, planes * self.expansion, kernel_size=1,
+#                                bias=False)
+#         self.bn3 = nn.BatchNorm2d(planes * self.expansion,
+#                                   momentum=BN_MOMENTUM)
+#         self.relu = nn.ReLU(inplace=True)
+#         self.downsample = downsample
+#         self.stride = stride
 
-    def forward(self, x):
-        residual = x
+#     def forward(self, x):
+#         residual = x
 
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
+#         out = self.conv1(x)
+#         out = self.bn1(out)
+#         out = self.relu(out)
 
-        out = self.conv2(out)
-        out = self.bn2(out)
-        out = self.relu(out)
+#         out = self.conv2(out)
+#         out = self.bn2(out)
+#         out = self.relu(out)
 
-        out = self.conv3(out)
-        out = self.bn3(out)
+#         out = self.conv3(out)
+#         out = self.bn3(out)
 
-        if self.downsample is not None:
-            residual = self.downsample(x)
+#         if self.downsample is not None:
+#             residual = self.downsample(x)
 
-        out += residual
-        out = self.relu(out)
+#         out += residual
+#         out = self.relu(out)
 
-        return out
+#         return out
 
 
 class Bottleneck_CAFFE(nn.Module):
@@ -625,44 +626,77 @@ class PoseResNetwthMultiExit(nn.Module):
         super(PoseResNetwthMultiExit, self).__init__()
         extra = cfg.MODEL.EXTRA
         self.deconv_with_bias = extra.DECONV_WITH_BIAS
-        self.backbone = list()
-        self.module_length = list()
+        self.ori_backbone = nn.ModuleList()
+        self.backbone = nn.ModuleList()
+        self.test = nn.ModuleList()
         self.exit_list = exit_list
         for i in range(len(exit_list)):
             print('creating network')
-            self.backbone.append(backbone_s1(start_point=exit_list[i], end_point=exit_list[i]))
+            self.ori_backbone.append(get_pose_net_with_only_exit(cfg, is_train=True, start_point = self.exit_list[i]))
+            state_dict = torch.load('/home/slzhang/projects/ETBA/Train/pose_estimation/checkpoints/split_point_{}/model_best.pth'.format(self.exit_list[i]))
+            new_dict = OrderedDict()
 
-        # self.backbone_s2 = backbone_s2(start_point=start_point, end_point=start_point)
+            for k,v in self.ori_backbone[i].state_dict().items():
+                new_dict[k] = state_dict['module.'+k]
+            self.ori_backbone[i].load_state_dict(new_dict, strict=True)
+
+        ori_backbone_copy = copy.deepcopy(self.ori_backbone)
+
         for i in range(len(exit_list)):
             if i == 0:
-                for item in list(self.backbone[i].children()):
-                    print(item)
-                flatt_model = get_children(self.backbone[i])
-                print(len(flatt_model))
-                for item in flatt_model:
-                    print(item)
-                num = 0
-                for k,v in self.backbone[i].named_parameters():
-                    num = num+1
-                    print(k)
-                print(num)
+                flatt_model = nn.Sequential(*list(ori_backbone_copy[i].backbone_s1.children())[:-1])
+                self.backbone.append(flatt_model)
+            else:
+                print('-------------------')
+                backbone = nn.Sequential()
+                last_bottleneck_num = 0
+                for layer in ori_backbone_copy[i-1].backbone_s1.named_modules():
+                    if isinstance(layer[1], Bottleneck) and 'exit' not in layer[0]:
+                        last_bottleneck_num = last_bottleneck_num + 1
+
+                cnt = 0
+                for layer in ori_backbone_copy[i].backbone_s1.named_modules():
+                    if isinstance(layer[1], Bottleneck) and 'exit' not in layer[0]:
+                        cnt = cnt + 1
+                        if cnt > last_bottleneck_num:
+                            backbone.add_module(layer[0].replace('.',' '), layer[1])
+
+                self.backbone.append(backbone)
+            for k,v in self.backbone[i].named_parameters():
+                v.requires_grad=True
+            for k,v in self.ori_backbone[i].named_parameters():
+                v.requires_grad=True
+
+        # self.backbone_s2 = backbone_s2(start_point=start_point, end_point=start_point)
+        # for i in range(len(exit_list)):
+            # for item in list(self.backbone[i].children())[:-1]:
+            #     print(item)
+            # flatt_model = get_children(nn.Sequential(*list(self.backbone[i].children())[:-1]))
+            # print(len(flatt_model))
+            # for item in flatt_model:
+            #     print(item)
+            # num = 0
+            # for k,v in self.backbone[i].named_parameters():
+            #     num = num+1
+            #     print(k)
+            # print(num)
             # if i != 0:
             #     self.backbone[i] = nn.Sequential(*(list(self.backbone[i].children())[7:]))
 
-        self.inplanes = 2048
-        self.deconv_layers = self._make_deconv_layer(
-            extra.NUM_DECONV_LAYERS,
-            extra.NUM_DECONV_FILTERS,
-            extra.NUM_DECONV_KERNELS,
-        )
+        # self.inplanes = 2048
+        # self.deconv_layers = self._make_deconv_layer(
+        #     extra.NUM_DECONV_LAYERS,
+        #     extra.NUM_DECONV_FILTERS,
+        #     extra.NUM_DECONV_KERNELS,
+        # )
 
-        self.final_layer = nn.Conv2d(
-            in_channels=extra.NUM_DECONV_FILTERS[-1],
-            out_channels=cfg.MODEL.NUM_JOINTS,
-            kernel_size=extra.FINAL_CONV_KERNEL,
-            stride=1,
-            padding=1 if extra.FINAL_CONV_KERNEL == 3 else 0
-        )
+        # self.final_layer = nn.Conv2d(
+        #     in_channels=extra.NUM_DECONV_FILTERS[-1],
+        #     out_channels=cfg.MODEL.NUM_JOINTS,
+        #     kernel_size=extra.FINAL_CONV_KERNEL,
+        #     stride=1,
+        #     padding=1 if extra.FINAL_CONV_KERNEL == 3 else 0
+        # )
 
     def _get_deconv_cfg(self, deconv_kernel, index):
         if deconv_kernel == 4:
@@ -707,9 +741,10 @@ class PoseResNetwthMultiExit(nn.Module):
     def forward(self, x):
         output = []
         for i in range(len(self.exit_list)):
-            x, x_exit = self.backbone[i](x)
-            x_exit = self.deconv_layers(x_exit)
-            x_exit = self.final_layer(x_exit)
+            x = self.backbone[i](x)
+            x_exit = self.ori_backbone[i].backbone_s1.exit(x)
+            x_exit = self.ori_backbone[i].deconv_layers(x_exit)
+            x_exit = self.ori_backbone[i].final_layer(x_exit)
             output.append(x_exit)
 
         return output

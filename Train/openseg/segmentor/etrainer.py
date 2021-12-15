@@ -417,7 +417,7 @@ class ETrainer(object):
 
         self.configer.update(["val_loss"], self.val_losses.avg)
         self.module_runner.save_net(self.seg_net, save_mode="iters")
-        # self.module_runner.save_net(self.seg_net, save_mode="val_loss")
+        self.module_runner.save_net(self.seg_net, save_mode="performance")
         cudnn.benchmark = True
 
         # Print the log info & reset the states.

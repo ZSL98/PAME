@@ -319,6 +319,10 @@ def main_worker(gpu, ngpus_per_node, args):
         is_best = acc1 > best_acc1
         best_acc1 = max(acc1, best_acc1)
 
+        save_dir = './checkpoints/train_metric_controlled/split_point_{}/'.format(args.split_point)
+        if not os.path.exists(save_dir):
+            os.makedirs(save_dir)
+
         if not args.multiprocessing_distributed or (args.multiprocessing_distributed
                 and args.rank % ngpus_per_node == 0):
             print('Save checkpoint!')
@@ -328,7 +332,17 @@ def main_worker(gpu, ngpus_per_node, args):
                 'state_dict':model.state_dict(),
                 'best_acc1': best_acc1,
                 'optimizer' : optimizer.state_dict(),
-            }, is_best, filename='./checkpoints/train_{}/checkpoint.pth.tar.'.format(args.epochs)+str(args.split_point))
+            }, is_best, save_dir, filename=save_dir+'checkpoint_s{}_latest.pth'.format(args.split_point))
+
+        if epoch%5 == 0:
+            iter_model_state_file = save_dir+'checkpoint_{}epochs_s{}.pth'.format(epoch, args.split_point)
+            torch.save({
+                'epoch': epoch,
+                'arch': "resnet101",
+                'state_dict':model.state_dict(),
+                'best_acc1': best_acc1,
+                'optimizer' : optimizer.state_dict(),
+            }, iter_model_state_file)
 
 
 def hook(module, fea_in, fea_out):
@@ -488,6 +502,7 @@ def validate(val_loader, model, criterion, args):
                 progress.display(i)
 
         # TODO: this should also be done with the ProgressMeter
+        wandb.log({"acc1": top1.avg, "acc5": top5.avg})
         print(' * Acc@1 {top1.avg:.3f} Acc@5 {top5.avg:.3f}'
               .format(top1=top1, top5=top5))
 
@@ -572,11 +587,10 @@ def validate(val_loader, model, criterion, args):
 
     """
 
-def save_checkpoint(state, is_best, filename='checkpoint.pth.tar'):
+def save_checkpoint(state, is_best, save_dir, filename='checkpoint.pth.tar'):
     torch.save(state, filename)
     if is_best:
-        pass
-        # shutil.copyfile(filename, './models/model_best.pth.tar')
+        torch.save(state, save_dir+'model_best.pth')
 
 def adjust_learning_rate(optimizer, epoch, args):
     """Sets the learning rate to the initial LR decayed by 10 every 30 epochs"""

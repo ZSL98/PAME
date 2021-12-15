@@ -28,9 +28,9 @@ from core.config import config
 from core.config import update_config
 from core.config import update_dir
 from core.config import get_model_name
-from core.loss import JointsMSELoss
-from core.function import train
-from core.function import validate
+from core.loss import MultiExitLoss
+from core.function import train_exit
+from core.function import validate_exit
 from utils.utils import get_optimizer
 from utils.utils import save_checkpoint
 from utils.utils import create_logger
@@ -102,7 +102,9 @@ def main():
     torch.backends.cudnn.deterministic = config.CUDNN.DETERMINISTIC
     torch.backends.cudnn.enabled = config.CUDNN.ENABLED
 
-    model = models.pose_resnet.get_pose_net_with_multi_exit(config, is_train=True, exit_list=[9,16])
+    model = models.pose_resnet.get_pose_net_with_multi_exit(config, is_train=True, exit_list=[4,10])
+    # model = model.train()
+    model = model.cuda()
     # model = eval('models.'+config.MODEL.NAME+'.get_pose_net_with_multi_exit')(
     #     config, is_train=True, exit_list = [8]
     # )
@@ -127,11 +129,9 @@ def main():
 
     gpus = [int(i) for i in config.GPUS.split(',')]
     model = torch.nn.DataParallel(model, device_ids=gpus).cuda()
-
+    
     # define loss function (criterion) and optimizer
-    criterion = JointsMSELoss(
-        use_target_weight=config.LOSS.USE_TARGET_WEIGHT
-    ).cuda()
+    criterion = MultiExitLoss(use_target_weight=config.LOSS.USE_TARGET_WEIGHT).cuda()
 
     optimizer = get_optimizer(config, model)
 
@@ -184,12 +184,12 @@ def main():
         lr_scheduler.step()
 
         # train for one epoch
-        train(config, train_loader, model, criterion, optimizer, epoch,
+        train_exit(config, train_loader, model, criterion, optimizer, epoch,
               final_output_dir, tb_log_dir, writer_dict)
 
 
         # evaluate on validation set
-        perf_indicator = validate(config, valid_loader, valid_dataset, model,
+        perf_indicator = validate_exit(config, valid_loader, valid_dataset, model,
                                   criterion, final_output_dir, tb_log_dir,
                                   writer_dict)
 
@@ -199,20 +199,21 @@ def main():
         else:
             best_model = False
 
-        logger.info('=> saving checkpoint to {}'.format(final_output_dir))
+        save_dir = '/home/slzhang/projects/ETBA/Train/pose_estimation/checkpoints/'
+        logger.info('=> saving checkpoint to {}'.format(save_dir))
         save_checkpoint({
             'epoch': epoch + 1,
             'model': get_model_name(config),
             'state_dict': model.state_dict(),
             'perf': perf_indicator,
             'optimizer': optimizer.state_dict(),
-        }, best_model, final_output_dir, filename='checkpoint.pth.tar.finetuned')
+        }, best_model, save_dir, filename='checkpoint_finetuned.pth')
 
-    final_model_state_file = os.path.join(final_output_dir,
-                                          'final_state.pth.tar.finetuned')
-    logger.info('saving final model state to {}'.format(
-        final_model_state_file))
-    torch.save(model.module.state_dict(), final_model_state_file)
+    # final_model_state_file = os.path.join(final_output_dir,
+    #                                       'final_state.pth.tar.finetuned')
+    # logger.info('saving final model state to {}'.format(
+    #     final_model_state_file))
+    # torch.save(model.module.state_dict(), final_model_state_file)
     writer_dict['writer'].close()
 
 
