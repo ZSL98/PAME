@@ -34,6 +34,9 @@ def train_exit(config, train_loader, model, criterion, optimizer, epoch,
 
     # switch to train mode
     model.train()
+    
+    for k,v in model.named_parameters():
+        v.requires_grad = True
 
     end = time.time()
     for i, (input, target, target_weight, meta) in enumerate(train_loader):
@@ -41,11 +44,11 @@ def train_exit(config, train_loader, model, criterion, optimizer, epoch,
         data_time.update(time.time() - end)
 
         # compute output
-        output, exit_output = model(input)
+        output = model(input)
         target = target.cuda(non_blocking=True)
         target_weight = target_weight.cuda(non_blocking=True)
 
-        loss = criterion(output, exit_output, target, target_weight)
+        loss = criterion(output, target, target_weight)
 
         # compute gradient and do update step
         optimizer.zero_grad()
@@ -55,6 +58,7 @@ def train_exit(config, train_loader, model, criterion, optimizer, epoch,
         # measure accuracy and record loss
         losses.update(loss.item(), input.size(0))
 
+        exit_output = output[0]
         _, avg_acc, cnt, pred = accuracy(exit_output.detach().cpu().numpy(),
                                          target.detach().cpu().numpy())
         acc.update(avg_acc, cnt)
@@ -167,47 +171,31 @@ def validate_exit(config, val_loader, val_dataset, model, criterion, output_dir,
         end = time.time()
         for i, (input, target, target_weight, meta) in enumerate(val_loader):
             # compute output
-            output, exit_output = model(input)
+            output = model(input)
+            exit_output = output[0]
             if config.TEST.FLIP_TEST:
                 # this part is ugly, because pytorch has not supported negative index
                 # input_flipped = model(input[:, :, :, ::-1])
                 input_flipped = np.flip(input.cpu().numpy(), 3).copy()
                 input_flipped = torch.from_numpy(input_flipped).cuda()
-                output_flipped, exit_output_flipped = model(input_flipped)
-                output_flipped = flip_back(output_flipped.cpu().numpy(),
-                                           val_dataset.flip_pairs)
-                output_flipped = torch.from_numpy(output_flipped.copy()).cuda()
+                output_flipped = model(input_flipped)
+                exit_output_flipped = output_flipped[0]
                 exit_output_flipped = flip_back(exit_output_flipped.cpu().numpy(),
                                            val_dataset.flip_pairs)
                 exit_output_flipped = torch.from_numpy(exit_output_flipped.copy()).cuda()
 
                 # feature is not aligned, shift flipped heatmap for higher accuracy
                 if config.TEST.SHIFT_HEATMAP:
-                    output_flipped[:, :, :, 1:] = \
-                        output_flipped.clone()[:, :, :, 0:-1]
                     exit_output_flipped[:, :, :, 1:] = \
                         exit_output_flipped.clone()[:, :, :, 0:-1]
                     # exit_output_flipped[:, :, :, 0] = 0
 
-                output = (output + output_flipped) * 0.5
                 exit_output = (exit_output + exit_output_flipped) * 0.5
-
-
-            # print(output.shape)
-            # print(output[0][0].shape)
-            move_on_cnt = 0
-            for j in range(output.shape[0]):
-                if len(exit_output[j][exit_output[j] > 0.8]) < 60:
-                    move_on_cnt = move_on_cnt + 1
-                    exit_output[j] = output[j]
-            # print(move_on_cnt)
-            # print('exit_output' + str(len(exit_output[exit_output > 0.8])))
-            # print('output' + str(len(output[i][output[i] > 0.8])))
 
             target = target.cuda(non_blocking=True)
             target_weight = target_weight.cuda(non_blocking=True)
 
-            loss = criterion(output, exit_output, target, target_weight)
+            loss = criterion(output, target, target_weight)
 
             num_images = input.size(0)
             # measure accuracy and record loss
@@ -215,10 +203,6 @@ def validate_exit(config, val_loader, val_dataset, model, criterion, output_dir,
             _, avg_acc, cnt, pred = accuracy(exit_output.cpu().numpy(),
                                              target.cpu().numpy())
 
-            # prefix = '{}_{}'.format(os.path.join(output_dir, 'test'), 0)
-            # save_debug_images_with_exit(config, input, meta, target, pred*4, 
-            #                             output, exit_output, prefix)
-            # exit()
 
             acc.update(avg_acc, cnt)
 
