@@ -322,8 +322,8 @@ class convert_posenet:
         self.batch_size = batch_size
 
     def load_posenet(self):
-        net_wth_finalhead = torch.load("/home/slzhang/projects/ETBA/Train/pose_estimation/models/pytorch/pose_mpii/pose_resnet_101_384x384.pth.tar")
-        net_wth_eehead = torch.load("/home/slzhang/projects/ETBA/Train/pose_estimation/output/mpii_epoch3/pose_resnet_101/384x384_d256x3_adam_lr1e-3/checkpoint.pth.tar."+str(self.split_point))
+        net_wth_finalhead = torch.load("/home/slzhang/projects/ETBA/Train/pose_estimation/checkpoints/pose_resnet_101_384x384.pth.tar")
+        net_wth_eehead = torch.load("/home/slzhang/projects/ETBA/Train/pose_estimation/checkpoints/split_point_{}/model_best.pth".format(self.split_point))
 
         # for k,v in net_wth_eehead['state_dict'].items():
         #     print(k)
@@ -342,7 +342,7 @@ class convert_posenet:
 
         dict_finalhead = net_wth_finalhead.copy()
         dict_finalhead_keys = list(net_wth_finalhead.keys())
-        dict_eehead = net_wth_eehead['state_dict'].copy()
+        dict_eehead = net_wth_eehead.copy()
         dict_dualhead = OrderedDict()
 
         i = 0
@@ -1531,7 +1531,7 @@ if __name__ == '__main__':
     # inst.eval_resnet(net_wth_eehead, net_wth_finalhead)
     # exit()
 
-    task = 'openseg'
+    task = 'posenet'
     mode = 'test'
 
     if mode == 'test':
@@ -1549,11 +1549,11 @@ if __name__ == '__main__':
                 inst.eval_resnet(net_wth_eehead, net_wth_finalhead)
 
         elif task == 'posenet':
-            for split_point in [28,31]:
-                batch_size = 128
+            for split_point in [1,4,7,10,13,16,19,22,25,28,31]:
+                batch_size = 32
                 opt_p_thres, opt_n_thres = grid_search(task, split_point, batch_size)
                 inst = convert_posenet(split_point=split_point, batch_size=batch_size, last_exit=None)
-                with open('/home/slzhang/projects/ETBA/Train/opt_thres_record/posenet_epoch3.csv', 'a+') as f:
+                with open('/home/slzhang/projects/ETBA/Train/opt_thres_record/posenet_metric_controlled.csv', 'a+') as f:
                     writer = csv.writer(f)
                     writer.writerow([split_point, opt_p_thres, opt_n_thres])
                 inst.p_thres = opt_p_thres
