@@ -43,6 +43,12 @@ from transformers import (
 from transformers.file_utils import get_full_repo_name
 from transformers.utils.versions import require_version
 
+from module.modeling_bert import BertForSequenceClassification as BertWithETBAForSequenceClassification
+
+try:
+    from torch.utils.tensorboard import SummaryWriter
+except:
+    from tensorboardX import SummaryWriter
 
 logger = logging.getLogger(__name__)
 
@@ -91,10 +97,21 @@ def parse_args():
         help="If passed, pad all samples to `max_length`. Otherwise, dynamic padding is used.",
     )
     parser.add_argument(
+        "--model_type",
+        type=str,
+        help="model type to specify precisely",
+    )
+    parser.add_argument(
         "--model_name_or_path",
         type=str,
         help="Path to pretrained model or model identifier from huggingface.co/models.",
         required=True,
+    )
+    parser.add_argument(
+        "--tokenizer_name",
+        type=str,
+        default=None,
+        help="Pretrained tokenizer name or path if not the same as model_name",
     )
     parser.add_argument(
         "--use_slow_tokenizer",
@@ -150,6 +167,18 @@ def parse_args():
         "--hub_model_id", type=str, help="The name of the repository to keep in sync with the local `output_dir`."
     )
     parser.add_argument("--hub_token", type=str, help="The token to use to push to the Model Hub.")
+
+    parser.add_argument(
+        "--do_train",
+        action="store_true",
+        help="Whether do training or only evaluate",
+    )
+    parser.add_argument(
+        "--do_evaluate",
+        action="store_true",
+        help="Whether do evaluation after training",
+    )
+
     args = parser.parse_args()
 
     # Sanity checks
@@ -260,12 +289,27 @@ def main():
     # In distributed training, the .from_pretrained methods guarantee that only one local process can concurrently
     # download model & vocab.
     config = AutoConfig.from_pretrained(args.model_name_or_path, num_labels=num_labels, finetuning_task=args.task_name)
-    tokenizer = AutoTokenizer.from_pretrained(args.model_name_or_path, use_fast=not args.use_slow_tokenizer)
-    model = AutoModelForSequenceClassification.from_pretrained(
-        args.model_name_or_path,
-        from_tf=bool(".ckpt" in args.model_name_or_path),
-        config=config,
-    )
+    if args.tokenizer_name:
+        tokenizer = AutoTokenizer.from_pretrained(args.tokenizer_name, use_fast=not args.use_slow_tokenizer)
+    elif args.model_name_or_path:
+        tokenizer = AutoTokenizer.from_pretrained(args.model_name_or_path, use_fast=not args.use_slow_tokenizer)
+    else:
+        raise ValueError(
+            "You are instantiating a new tokenizer from scratch. This is not supported by this script."
+            "You can do it from another script, save it, and load it from here, using --tokenizer_name."
+        )        
+    if args.model_type == 'etba':
+        model = BertWithETBAForSequenceClassification.from_pretrained(
+            args.model_name_or_path,
+            from_tf=bool(".ckpt" in args.model_name_or_path),
+            config=config,
+        )
+    else:
+        model = AutoModelForSequenceClassification.from_pretrained(
+            args.model_name_or_path,
+            from_tf=bool(".ckpt" in args.model_name_or_path),
+            config=config,
+        )
 
     # Preprocessing the datasets
     if args.task_name is not None:
@@ -418,6 +462,9 @@ def main():
     progress_bar = tqdm(range(args.max_train_steps), disable=not accelerator.is_local_main_process)
     completed_steps = 0
 
+    if accelerator.is_main_process:
+        tb_writer = SummaryWriter(args.output_dir)
+
     for epoch in range(args.num_train_epochs):
         model.train()
         for step, batch in enumerate(train_dataloader):
@@ -435,6 +482,14 @@ def main():
             if completed_steps >= args.max_train_steps:
                 break
 
+            # # # logging
+            # if accelerator.is_main_process and args.logging_steps > 0 and  completed_steps % args.logging_steps == 0:
+            #     tb_writer.add_scalar('lr', lr_scheduler.get_last_lr()[0], completed_steps)
+            #     tb_writer.add_scalar('loss', (tr_loss - logging_loss)/args.logging_steps, completed_steps)
+            #     logging_loss = tr_loss
+            #     if args.model_type == 'etba':
+            #         pass
+
         model.eval()
         for step, batch in enumerate(eval_dataloader):
             outputs = model(**batch)
@@ -446,6 +501,13 @@ def main():
 
         eval_metric = metric.compute()
         logger.info(f"epoch {epoch}: {eval_metric}")
+
+        # logging
+        if accelerator.is_main_process :
+            for key in eval_metric:
+                tb_writer.add_scalar(f'eval_{key}', eval_metric[key], epoch)
+            if args.model_type == 'etba':
+                pass
 
         if args.push_to_hub and epoch < args.num_train_epochs - 1:
             accelerator.wait_for_everyone()

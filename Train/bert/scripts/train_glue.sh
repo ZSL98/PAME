@@ -20,7 +20,9 @@ fi
 mkdir -p ${OUTPUT_DIR}
 
 python -u src/run_glue_no_trainer.py \
+  --model_type etba \
   --model_name_or_path bert-base-uncased \
+  --tokenizer_name bert-base-uncased \
   --task_name $TASK_NAME \
   --max_length 512 \
   --per_device_train_batch_size 32 \
