@@ -1,6 +1,6 @@
 {
-    "bs_s1": 128,
-    "bs_s2": 128,
+    "bs_s1": 32,
+    "bs_s2": 32,
     "b_interval": 8,
     "log_lvl": "INFO",
     "bs_num": 100,

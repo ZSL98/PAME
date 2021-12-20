@@ -617,7 +617,7 @@ std::vector<float> Profiler::execute(const bool separate_or_not, const size_t& n
 
             exitPtr = buffer_s1.getImmediateBuffer(2);
             exitPtr_device = static_cast<float*>(exitPtr->deviceBuffer.data());
-            max_reduction_r(exitPtr_device, copy_list, stream_1);
+            max_reduction_p(exitPtr_device, copy_list, stream_1);
 
 
             std::shared_ptr<samplesCommon::ManagedBuffer> manBuf_ptr = buffer_s1.getImmediateBuffer(1);
@@ -931,7 +931,7 @@ int main(int argc, char** argv)
     config_doc.ParseStream(config_fs);
 
     std::ofstream outFile;
-    Py_Initialize();
+    // Py_Initialize();
     int extend_max_block = 1;
     if (config_doc["seperate_or_not"].GetBool()){
         for (int split_point = config_doc["split_point"].GetUint(); split_point < config_doc["termi_point"].GetUint(); split_point++)
@@ -976,11 +976,11 @@ int main(int argc, char** argv)
             std::cout << "Opt end_point for start_point " << start_point << " is " << end_point << std::endl;
 
             */
-            bool model_generated = model_generation(model_name, config_doc["begin_point"].GetUint(), split_point);
-            if(!model_generated){
-                std::cout<<"failed to export models"<<endl;
-                return -1;
-            }
+            // bool model_generated = model_generation(model_name, config_doc["begin_point"].GetUint(), split_point);
+            // if(!model_generated){
+            //     std::cout<<"failed to export models"<<endl;
+            //     return -1;
+            // }
             
             // std::vector<float> avg_elapsed_time_s1;
             // std::vector<float> avg_elapsed_time_s2;
@@ -1069,6 +1069,6 @@ int main(int argc, char** argv)
         std::cout << "Average elapsed time of the begin-from-" << config_doc["begin_point"].GetUint() << " model: " 
                     << avg_elapsed_time << std::endl;
     }
-    Py_Finalize();
+    // Py_Finalize();
     return 0;
 }
