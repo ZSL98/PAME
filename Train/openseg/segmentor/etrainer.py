@@ -19,6 +19,7 @@ import os
 import cv2
 import pdb
 import numpy as np
+import wandb
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -68,10 +69,14 @@ class ETrainer(object):
         self.scheduler = None
         self.running_score = None
 
+        self.metric_record = []
+
         self._init_model()
 
     def _init_model(self):
         self.seg_net = self.model_manager.semantic_segmentor()
+        if self.seg_net.for_finetune is not None:
+            self.seg_net.load_parameters()
         self.seg_net = self.module_runner.load_net(self.seg_net)
 
         Log.info(
@@ -296,6 +301,11 @@ class ETrainer(object):
                 == 0
             ):
                 self.__val()
+                print(self.metric_record)
+                diff = [self.metric_record[i+1]-self.metric_record[i] for i in range(len(self.metric_record)-1)]
+                print(diff)
+                if len([i for i in diff[-2:] if i < 0.01]) == 2:
+                    exit()
 
         self.configer.plus_one("epoch")
 
@@ -408,8 +418,8 @@ class ETrainer(object):
         self.evaluator.update_performance()
 
         self.configer.update(["val_loss"], self.val_losses.avg)
+        self.module_runner.save_net(self.seg_net, save_mode="iters")
         self.module_runner.save_net(self.seg_net, save_mode="performance")
-        self.module_runner.save_net(self.seg_net, save_mode="val_loss")
         cudnn.benchmark = True
 
         # Print the log info & reset the states.
@@ -421,8 +431,10 @@ class ETrainer(object):
                     batch_time=self.batch_time, loss=self.val_losses
                 )
             )
-            self.evaluator.print_scores()
-
+            metric = self.evaluator.print_scores()
+            wandb.log({'metric':metric})
+            self.metric_record.append(metric)
+        
         self.batch_time.reset()
         self.val_losses.reset()
         self.evaluator.reset()

@@ -22,3 +22,7 @@ stsb
 train_ouput*
 *.pkl
 *.csv
+*.log
+*.npy
+*.png
+*exit*json

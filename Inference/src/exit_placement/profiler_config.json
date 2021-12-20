@@ -6,9 +6,15 @@
     "bs_num": 100,
     "test_iter": 1,
     "copy_method": 0,
+<<<<<<< HEAD
     "seperate_or_not": true,
     "begin_point": 0,
     "split_point": 1,
+=======
+    "seperate_or_not": false,
+    "begin_point": 0,
+    "split_point": 30,
+>>>>>>> c0de5d74ff9bd2dce43493e31cd4a8f8b796baa1
     "termi_point": 34,
     "fp16": false
   }

@@ -1808,6 +1808,15 @@ class BertWithSinglehead(BertPreTrainedModel):
         dict_pre_trained = self.bert.state_dict().copy()
         dict_s1 = self.bert_s1.state_dict().copy()
 
+        # # Train early exits, use finetuned model
+        # # bert_for_mrpc = torch.load('./models/mrpc/exit/pytorch_model.bin')
+        # bert_for_stsb = torch.load('./models/mrpc/exit/pytorch_model.bin')
+        # for k,v in bert_for_stsb.items():
+        #     for k_s1,v_s1 in self.bert_s1.state_dict().items():
+        #         if k[8:] == k_s1:
+        #             dict_s1[k_s1] = bert_for_stsb[k]
+
+        # Train the final exit, use pre-trained model
         for k,v in self.bert.state_dict().items():
             for k_s1,v_s1 in self.bert_s1.state_dict().items():
                 if k == k_s1:
@@ -1815,8 +1824,15 @@ class BertWithSinglehead(BertPreTrainedModel):
 
         self.bert_s1.load_state_dict(dict_s1)
         for param in self.bert_s1.parameters():
-            param.requires_grad = False
+            # # Train early exits
+            # param.requires_grad = False
+            # Train the final exit
+            param.requires_grad = True
+
         del(self.bert)
+        for k,v in self.named_parameters():
+            if v.requires_grad == True:
+                print(k)
         # self.init_weights()
 
     def forward(

@@ -29,7 +29,7 @@ parser.add_argument('--data', metavar='DIR', default='/home/slzhang/projects/Sha
                     help='path to dataset')
 parser.add_argument('-j', '--workers', default=4, type=int, metavar='N',
                     help='number of data loading workers (default: 4)')
-parser.add_argument('--epochs', default=1, type=int, metavar='N',
+parser.add_argument('--epochs', default=10, type=int, metavar='N',
                     help='number of total epochs to run')
 # parser.add_argument('--start-point', default=33, type=int, metavar='N',
 #                     help='split the network from the start point')
@@ -304,6 +304,7 @@ def main_worker(gpu, ngpus_per_node, args):
     #     validate(val_loader, model, criterion, args)
     #     return
 
+    metric_record = []
     for epoch in range(args.start_epoch, args.epochs):
         if args.distributed:
             train_sampler.set_epoch(epoch)
@@ -314,10 +315,15 @@ def main_worker(gpu, ngpus_per_node, args):
 
         # evaluate on validation set
         acc1 = validate(val_loader, model, criterion, args)
+        metric_record.append(acc1)
 
         # remember best acc@1 and save checkpoint
         is_best = acc1 > best_acc1
         best_acc1 = max(acc1, best_acc1)
+
+        save_dir = './checkpoints/train_10/split_point_{}/'.format(args.split_point)
+        if not os.path.exists(save_dir):
+            os.makedirs(save_dir)
 
         if not args.multiprocessing_distributed or (args.multiprocessing_distributed
                 and args.rank % ngpus_per_node == 0):
@@ -328,7 +334,21 @@ def main_worker(gpu, ngpus_per_node, args):
                 'state_dict':model.state_dict(),
                 'best_acc1': best_acc1,
                 'optimizer' : optimizer.state_dict(),
-            }, is_best, filename='./models/checkpoint.pth.tar.'+str(args.split_point))
+            }, is_best, save_dir, filename=save_dir+'checkpoint_s{}_latest.pth'.format(args.split_point))
+
+        if epoch%5 == 0:
+            iter_model_state_file = save_dir+'checkpoint_{}epochs_s{}.pth'.format(epoch, args.split_point)
+            torch.save({
+                'epoch': epoch,
+                'arch': "resnet101",
+                'state_dict':model.state_dict(),
+                'best_acc1': best_acc1,
+                'optimizer' : optimizer.state_dict(),
+            }, iter_model_state_file)
+
+        # diff = [metric_record[i+1]-metric_record[i] for i in range(len(metric_record)-1)]
+        # if len([i for i in diff[-3:] if i < 0.25]) == 3:
+        #     exit()
 
 
 def hook(module, fea_in, fea_out):
@@ -488,6 +508,7 @@ def validate(val_loader, model, criterion, args):
                 progress.display(i)
 
         # TODO: this should also be done with the ProgressMeter
+        wandb.log({"acc1": top1.avg, "acc5": top5.avg})
         print(' * Acc@1 {top1.avg:.3f} Acc@5 {top5.avg:.3f}'
               .format(top1=top1, top5=top5))
 
@@ -572,11 +593,10 @@ def validate(val_loader, model, criterion, args):
 
     """
 
-def save_checkpoint(state, is_best, filename='checkpoint.pth.tar'):
+def save_checkpoint(state, is_best, save_dir, filename='checkpoint.pth.tar'):
     torch.save(state, filename)
     if is_best:
-        pass
-        # shutil.copyfile(filename, './models/model_best.pth.tar')
+        torch.save(state, save_dir+'model_best.pth')
 
 def adjust_learning_rate(optimizer, epoch, args):
     """Sets the learning rate to the initial LR decayed by 10 every 30 epochs"""

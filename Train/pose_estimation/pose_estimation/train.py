@@ -12,6 +12,7 @@ import argparse
 import os
 import pprint
 import shutil
+import wandb
 
 import torch
 import torch.nn.parallel
@@ -76,8 +77,20 @@ def reset_config(config, args):
 
 
 def main():
+
     args = parse_args()
     reset_config(config, args)
+
+    wandb.init(
+        # Set entity to specify your username or team name
+        # ex: entity="carey",
+        # Set the project where this run will be logged
+        project="posenet_train", 
+        name="split_point:"+str(args.split_point),
+        # Track hyperparameters and run metadata
+        config={
+        "architecture": "resnet101",
+        "dataset": "mpii",})
 
     logger, final_output_dir, tb_log_dir = create_logger(
         config, args.cfg, 'train')
@@ -167,6 +180,7 @@ def main():
 
     best_perf = 0.0
     best_model = False
+    metric_record = []
     for epoch in range(config.TRAIN.BEGIN_EPOCH, config.TRAIN.END_EPOCH):
         lr_scheduler.step()
 
@@ -180,27 +194,38 @@ def main():
                                   criterion, final_output_dir, tb_log_dir,
                                   writer_dict)
 
+        metric_record.append(perf_indicator)
         if perf_indicator > best_perf:
             best_perf = perf_indicator
             best_model = True
         else:
             best_model = False
 
-        logger.info('=> saving checkpoint to {}'.format(final_output_dir))
+        save_dir = os.path.join('/home/slzhang/projects/ETBA/Train/pose_estimation/checkpoints', 'split_point_'+str(args.split_point))
+        if not os.path.exists(save_dir):
+            os.makedirs(save_dir)
+        logger.info('=> saving checkpoint to {}'.format(save_dir))
         save_checkpoint({
             'epoch': epoch + 1,
             'model': get_model_name(config),
             'state_dict': model.state_dict(),
             'perf': perf_indicator,
             'optimizer': optimizer.state_dict(),
-        }, best_model, final_output_dir, filename='checkpoint.pth.tar.'+str(args.split_point))
+        }, best_model, save_dir, filename='checkpoint_s{}_latest.pth'.format(str(args.split_point)))
 
-    final_model_state_file = os.path.join(final_output_dir,
-                                          'final_state.pth.tar'+str(args.split_point))
-    logger.info('saving final model state to {}'.format(
-        final_model_state_file))
-    torch.save(model.module.state_dict(), final_model_state_file)
-    writer_dict['writer'].close()
+        if epoch%5 == 0: 
+            iter_model_state_file = os.path.join(save_dir,
+                                                'checkpoint_{}epochs_s{}.pth'.format(epoch, args.split_point))
+            logger.info('saving model state to {}'.format(iter_model_state_file))
+            torch.save(model.module.state_dict(), iter_model_state_file)
+
+        diff = [metric_record[i+1]-metric_record[i] for i in range(len(metric_record)-1)]
+        if len([i for i in diff[-3:] if i < 0.25]) == 3:
+            writer_dict['writer'].close()
+            exit()
+
+
+    # writer_dict['writer'].close()
 
 
 if __name__ == '__main__':

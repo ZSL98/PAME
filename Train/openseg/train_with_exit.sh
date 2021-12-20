@@ -1,7 +1,7 @@
 # #!/bin/bash
 # exec 3>&1 4>&2
 # trap 'exec 2>&4 1>&3' 0 1 2 3
-# LOG_FILE="./log/cityscapes/train_output_26-30.log"
+# LOG_FILE="./log/cityscapes/train_output_finetune.log"
 # exec 1>${LOG_FILE} 2>&1
 
 PYTHON="/home/slzhang/miniconda/envs/fedml/bin/python"
@@ -13,23 +13,25 @@ PYTHON="/home/slzhang/miniconda/envs/fedml/bin/python"
 DATA_ROOT="/home/slzhang/projects/ETBA/Train/openseg/data"
 DATA_DIR="${DATA_ROOT}/cityscapes"
 SAVE_DIR="${DATA_ROOT}/seg_result/cityscapes/"
-BACKBONE="resnet101_with_only_exit"
-# BACKBONE="deepbase_resnet101_dilated8"
-
 CONFIGS="configs/cityscapes/R_101_D_8_with_exit.json"
-MODEL_NAME="spatial_ocrnet_with_only_exit"
-LOSS_TYPE="fs_auxce_loss"
-MAX_ITERS=3000
-
 CHECKPOINTS_NAME="ocrnet_resnet101_s"
 # CHECKPOINTS_NAME="${MODEL_NAME}_${BACKBONE}_"$2
 LOG_FILE="./log/cityscapes/${CHECKPOINTS_NAME}.log"
 PRETRAINED_MODEL="./pretrained_model/resnet101-imagenet.pth"
 
-for i in {26..27}
+MAX_ITERS=40000
+BACKBONE="resnet101_with_only_exit"
+MODEL_NAME="spatial_ocrnet_with_only_exit"
+LOSS_TYPE="fs_auxce_loss"
+
+
+# TODO: WARNING!!!!!!!! change checkpoints_dir in the json file
+
+
+for i in 10 13 16
 do
     # TODO: log results
-    ${PYTHON} -u main.py --configs ${CONFIGS} \
+    python -u main.py --configs ${CONFIGS} \
                        --drop_last y \
                        --phase etrain \
                        --gathered n \
@@ -37,7 +39,7 @@ do
                        --log_to_file n \
                        --backbone ${BACKBONE} \
                        --model_name ${MODEL_NAME} \
-                       --gpu 0 1 2 3 \
+                       --gpu 0 \
                        --data_dir ${DATA_DIR} \
                        --loss_type ${LOSS_TYPE} \
                        --max_iters ${MAX_ITERS} \

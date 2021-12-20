@@ -9,7 +9,7 @@ import pandas as pd
 import numpy as np
 import soundfile as sf
 import argparse
-from IPython.display import display, HTML
+# from IPython.display import display, HTML
 
 from transformers import Wav2Vec2CTCTokenizer, Wav2Vec2FeatureExtractor, Wav2Vec2Processor, TrainingArguments, Trainer
 from dataclasses import dataclass, field
@@ -166,15 +166,15 @@ if __name__ == '__main__':
 
     training_args = TrainingArguments(
     # output_dir="/content/gdrive/MyDrive/wav2vec2-base-timit-demo",
-    output_dir="./wav2vec2-base-timit-demo",
+    output_dir="./checkpoints/timit_exit_{}".format(args_parser.split_point),
     group_by_length=True,
     per_device_train_batch_size=8,
     evaluation_strategy="steps",
-    num_train_epochs=10,
+    num_train_epochs=50,
     fp16=True,
     save_steps=500,
     eval_steps=500,
-    logging_steps=50,
+    logging_steps=500,
     learning_rate=1e-4,
     weight_decay=0.005,
     warmup_steps=1000,
