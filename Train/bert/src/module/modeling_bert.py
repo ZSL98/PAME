@@ -1504,7 +1504,8 @@ class BertForSequenceClassification(BertPreTrainedModel):
             config.classifier_dropout if config.classifier_dropout is not None else config.hidden_dropout_prob
         )
         self.dropout = nn.Dropout(classifier_dropout)
-        self.classifier = nn.Linear(config.hidden_size, config.num_labels)
+        self.classifier = nn.ModuleList([nn.Linear(config.hidden_size, config.num_labels) for _ in range(config.num_hidden_layers)])
+        self.pooler = nn.ModuleList([BertPooler(config) for _ in range(config.num_hidden_layers)])  
 
         # Initialize weights and apply final processing
         self.post_init()
@@ -1545,44 +1546,50 @@ class BertForSequenceClassification(BertPreTrainedModel):
             head_mask=head_mask,
             inputs_embeds=inputs_embeds,
             output_attentions=output_attentions,
-            output_hidden_states=output_hidden_states,
-            return_dict=return_dict,
+            output_hidden_states=True,
+            return_dict=True,
         )
 
-        pooled_output = outputs[1]
+        all_loss, all_logits = list(), list()
+        for layer_idx, layer_output in enumerate(outputs.hidden_states[1:]):
+            # pooled_output = outputs[1]
+            pooled_output = self.pooler[layer_idx](layer_output)
+            pooled_output = self.dropout(pooled_output)
+            logits = self.classifier[layer_idx](pooled_output)
 
-        pooled_output = self.dropout(pooled_output)
-        logits = self.classifier(pooled_output)
+            loss = None
+            if labels is not None:
+                if self.config.problem_type is None:
+                    if self.num_labels == 1:
+                        self.config.problem_type = "regression"
+                    elif self.num_labels > 1 and (labels.dtype == torch.long or labels.dtype == torch.int):
+                        self.config.problem_type = "single_label_classification"
+                    else:
+                        self.config.problem_type = "multi_label_classification"
 
-        loss = None
-        if labels is not None:
-            if self.config.problem_type is None:
-                if self.num_labels == 1:
-                    self.config.problem_type = "regression"
-                elif self.num_labels > 1 and (labels.dtype == torch.long or labels.dtype == torch.int):
-                    self.config.problem_type = "single_label_classification"
-                else:
-                    self.config.problem_type = "multi_label_classification"
-
-            if self.config.problem_type == "regression":
-                loss_fct = MSELoss()
-                if self.num_labels == 1:
-                    loss = loss_fct(logits.squeeze(), labels.squeeze())
-                else:
+                if self.config.problem_type == "regression":
+                    loss_fct = MSELoss()
+                    if self.num_labels == 1:
+                        loss = loss_fct(logits.squeeze(), labels.squeeze())
+                    else:
+                        loss = loss_fct(logits, labels)
+                elif self.config.problem_type == "single_label_classification":
+                    loss_fct = CrossEntropyLoss()
+                    loss = loss_fct(logits.view(-1, self.num_labels), labels.view(-1))
+                elif self.config.problem_type == "multi_label_classification":
+                    loss_fct = BCEWithLogitsLoss()
                     loss = loss_fct(logits, labels)
-            elif self.config.problem_type == "single_label_classification":
-                loss_fct = CrossEntropyLoss()
-                loss = loss_fct(logits.view(-1, self.num_labels), labels.view(-1))
-            elif self.config.problem_type == "multi_label_classification":
-                loss_fct = BCEWithLogitsLoss()
-                loss = loss_fct(logits, labels)
+            all_loss.append(loss)
+            all_logits.append(logits)
+        loss = sum(all_loss)
+
         if not return_dict:
             output = (logits,) + outputs[2:]
             return ((loss,) + output) if loss is not None else output
 
         return SequenceClassifierOutput(
             loss=loss,
-            logits=logits,
+            logits=all_logits,
             hidden_states=outputs.hidden_states,
             attentions=outputs.attentions,
         )
