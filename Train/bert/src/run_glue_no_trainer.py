@@ -443,10 +443,16 @@ def main():
     )
 
     # Get the metric function
-    if args.task_name is not None:
-        metric = load_metric("glue", args.task_name)
+    if args.model_type == 'etba':
+        if args.task_name is not None:
+            metric = [load_metric("glue", args.task_name) for i in range(config.num_hidden_layers)]
+        else:
+            metric = [load_metric("accuracy") for i in range(config.num_hidden_layers)]
     else:
-        metric = load_metric("accuracy")
+        if args.task_name is not None:
+            metric = load_metric("glue", args.task_name)
+        else:
+            metric = load_metric("accuracy")
 
     # Train!
     total_batch_size = args.per_device_train_batch_size * accelerator.num_processes * args.gradient_accumulation_steps
@@ -493,21 +499,37 @@ def main():
         model.eval()
         for step, batch in enumerate(eval_dataloader):
             outputs = model(**batch)
-            predictions = outputs.logits.argmax(dim=-1) if not is_regression else outputs.logits.squeeze()
-            metric.add_batch(
-                predictions=accelerator.gather(predictions),
-                references=accelerator.gather(batch["labels"]),
-            )
+            if args.model_type == 'etba':
+                for i in range(config.num_hidden_layers):
+                    predictions = outputs.logits[i].argmax(dim=-1) if not is_regression else outputs.logits[i].squeeze()
+                    metric[i].add_batch(
+                        predictions=accelerator.gather(predictions),
+                        references=accelerator.gather(batch["labels"]),
+                    )                    
+            else:
+                predictions = outputs.logits.argmax(dim=-1) if not is_regression else outputs.logits.squeeze()
+                metric.add_batch(
+                    predictions=accelerator.gather(predictions),
+                    references=accelerator.gather(batch["labels"]),
+                )
 
-        eval_metric = metric.compute()
-        logger.info(f"epoch {epoch}: {eval_metric}")
+        if args.model_type == 'etba':
+            eval_metric = [metric[i].compute() for i in range(config.num_hidden_layers)]
+            for i in range(config.num_hidden_layers):
+                logger.info(f"epoch {epoch} layer {i}: {eval_metric[i]}")
+        else:
+            eval_metric = metric.compute()
+            logger.info(f"epoch {epoch}: {eval_metric}")
 
         # logging
         if accelerator.is_main_process :
-            for key in eval_metric:
-                tb_writer.add_scalar(f'eval_{key}', eval_metric[key], epoch)
             if args.model_type == 'etba':
-                pass
+                for i in range(config.num_hidden_layers):
+                    for key in eval_metric[i]:
+                        tb_writer.add_scalar(f'eval_{key}_layer_{i}', eval_metric[i][key], epoch)
+            else:
+                for key in eval_metric:
+                    tb_writer.add_scalar(f'eval_{key}', eval_metric[key], epoch)
 
         if args.push_to_hub and epoch < args.num_train_epochs - 1:
             accelerator.wait_for_everyone()
