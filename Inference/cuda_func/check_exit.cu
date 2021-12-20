@@ -82,7 +82,7 @@ __global__ void max_reduction_openseg(float *v, int *v_r) {
 	int tid = bid * blockDim.x + threadIdx.x;
 	float max_p = 0;
 	for (int s = 0; s < 19; s++){
-		float tmp = v[tid*16*19 + s];
+		float tmp = v[tid*19 + s];
 		if (tmp > max_p) {
 			max_p = tmp;
 		}
