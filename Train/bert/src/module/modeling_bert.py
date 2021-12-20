@@ -1550,8 +1550,10 @@ class BertForSequenceClassification(BertPreTrainedModel):
             return_dict=True,
         )
 
-        all_loss, all_logits = list(), list()
+        all_loss, all_logits = [None for i in range(self.config.num_hidden_layers)], [None for i in range(self.config.num_hidden_layers)]
         for layer_idx, layer_output in enumerate(outputs.hidden_states[1:]):
+            if not layer_idx in self.config.augment_layers:
+                continue
             # pooled_output = outputs[1]
             pooled_output = self.pooler[layer_idx](layer_output)
             pooled_output = self.dropout(pooled_output)
@@ -1579,9 +1581,9 @@ class BertForSequenceClassification(BertPreTrainedModel):
                 elif self.config.problem_type == "multi_label_classification":
                     loss_fct = BCEWithLogitsLoss()
                     loss = loss_fct(logits, labels)
-            all_loss.append(loss)
-            all_logits.append(logits)
-        loss = sum(all_loss)
+            all_loss[layer_idx] = loss
+            all_logits[layer_idx] = logits
+        loss = sum([i for i in all_loss if i is not None])
 
         if not return_dict:
             output = (logits,) + outputs[2:]
