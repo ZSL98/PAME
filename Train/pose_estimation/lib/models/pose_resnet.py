@@ -628,10 +628,8 @@ class PoseResNetwthMultiExit(nn.Module):
         self.deconv_with_bias = extra.DECONV_WITH_BIAS
         self.ori_backbone = nn.ModuleList()
         self.backbone = nn.ModuleList()
-        self.test = nn.ModuleList()
         self.exit_list = exit_list
-        for i in range(len(exit_list)):
-            print('creating network')
+        for i in range(len(exit_list)-1):
             self.ori_backbone.append(get_pose_net_with_only_exit(cfg, is_train=True, start_point = self.exit_list[i]))
             state_dict = torch.load('/home/slzhang/projects/ETBA/Train/pose_estimation/checkpoints/split_point_{}/model_best.pth'.format(self.exit_list[i]))
             new_dict = OrderedDict()
@@ -639,6 +637,19 @@ class PoseResNetwthMultiExit(nn.Module):
             for k,v in self.ori_backbone[i].state_dict().items():
                 new_dict[k] = state_dict['module.'+k]
             self.ori_backbone[i].load_state_dict(new_dict, strict=True)
+
+        self.ori_backbone.append(get_pose_net_with_only_exit(cfg, is_train=True, start_point = 33))
+        net_wth_finalhead = torch.load('/home/slzhang/projects/ETBA/Train/pose_estimation/checkpoints/pose_resnet_101_384x384.pth.tar')
+        
+        new_dict = OrderedDict()
+        dict_finalhead = net_wth_finalhead.copy()
+        dict_finalhead_keys = list(net_wth_finalhead.keys())
+        i = 0
+        for k,v in self.ori_backbone[len(exit_list)-1].state_dict().items():
+            if 'num_batches_tracked' not in k:
+                new_dict[k] = dict_finalhead[dict_finalhead_keys[i]]
+                i = i + 1
+        self.ori_backbone[len(exit_list)-1].load_state_dict(new_dict, strict=True)
 
         ori_backbone_copy = copy.deepcopy(self.ori_backbone)
 

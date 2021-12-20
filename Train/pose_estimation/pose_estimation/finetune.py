@@ -102,7 +102,7 @@ def main():
     torch.backends.cudnn.deterministic = config.CUDNN.DETERMINISTIC
     torch.backends.cudnn.enabled = config.CUDNN.ENABLED
 
-    model = models.pose_resnet.get_pose_net_with_multi_exit(config, is_train=True, exit_list=[4,10])
+    model = models.pose_resnet.get_pose_net_with_multi_exit(config, is_train=True, exit_list=[10, 16, 33])
     # model = model.train()
     model = model.cuda()
     # model = eval('models.'+config.MODEL.NAME+'.get_pose_net_with_multi_exit')(

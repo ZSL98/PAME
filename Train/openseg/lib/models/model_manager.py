@@ -21,7 +21,7 @@ from lib.models.nets.fcnet import FcnNet
 
 # OCR
 from lib.models.nets.ocrnet import SpatialOCRNet, ASPOCRNet
-from lib.models.nets.ocrnet_with_exit import SpatialOCRNet_with_exit, SpatialOCRNet_with_only_exit
+from lib.models.nets.ocrnet_with_exit import SpatialOCRNet_with_exit, SpatialOCRNet_with_only_exit, SpatialOCRNet_with_multi_exit
 from lib.models.nets.ideal_ocrnet import (
     IdealSpatialOCRNet,
     IdealSpatialOCRNetB,
@@ -61,6 +61,7 @@ SEG_MODEL_DICT = {
     "spatial_asp_ocrnet": ASPOCRNet,
     "spatial_ocrnet_with_exit": SpatialOCRNet_with_exit,
     "spatial_ocrnet_with_only_exit": SpatialOCRNet_with_only_exit,
+    "spatial_ocrnet_with_multi_exit": SpatialOCRNet_with_multi_exit,
     # OCR series with ground-truth
     "ideal_spatial_ocrnet": IdealSpatialOCRNet,
     "ideal_spatial_ocrnet_b": IdealSpatialOCRNetB,

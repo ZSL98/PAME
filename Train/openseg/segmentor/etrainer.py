@@ -75,6 +75,8 @@ class ETrainer(object):
 
     def _init_model(self):
         self.seg_net = self.model_manager.semantic_segmentor()
+        if self.seg_net.for_finetune is not None:
+            self.seg_net.load_parameters()
         self.seg_net = self.module_runner.load_net(self.seg_net)
 
         Log.info(

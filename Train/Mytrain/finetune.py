@@ -124,7 +124,7 @@ def main_worker(gpu, ngpus_per_node, args):
         # Set entity to specify your username or team name
         # ex: entity="carey",
         # Set the project where this run will be logged
-        project="resnet_train", 
+        project="resnet_finetune", 
         name="split_point:"+str(args.split_point),
         # Track hyperparameters and run metadata
         config={

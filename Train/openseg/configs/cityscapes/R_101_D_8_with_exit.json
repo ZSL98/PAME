@@ -76,7 +76,7 @@
     },
     "network":{
       "backbone": "resnet101_with_exit",
-      "split_point": 26,
+      "split_point": 13,
       "multi_grid": [1, 1, 1],
       "model_name": "spatial_ocrnet_with_exit",
       "bn_type": "inplace_abn",

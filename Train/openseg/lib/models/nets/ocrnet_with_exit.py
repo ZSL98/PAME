@@ -9,6 +9,7 @@
 ##+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 import pdb
 from typing import OrderedDict
+import copy
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
@@ -18,7 +19,7 @@ import sys
 sys.path.append("/home/slzhang/projects/ETBA/Train/openseg")
 from lib.models.backbones.backbone_selector import BackboneSelector
 from lib.models.tools.module_helper import ModuleHelper
-from lib.models.backbones.resnet.resnet_backbone_with_exit import backbone_s1, backbone_s2
+from lib.models.backbones.resnet.resnet_backbone_with_exit import backbone_s1, backbone_s2, Bottleneck
 
 class SpatialOCRNet_with_only_exit(nn.Module):
     """
@@ -27,6 +28,7 @@ class SpatialOCRNet_with_only_exit(nn.Module):
     """
     def __init__(self, configer):
         self.inplanes = 128
+        self.for_finetune = None
         super(SpatialOCRNet_with_only_exit, self).__init__()
         self.configer = configer
         self.num_classes = self.configer.get('data', 'num_classes')
@@ -149,6 +151,65 @@ class SpatialOCRNet_with_only_exit(nn.Module):
 
         return  x1_dsn, x1
 
+# TODO: Class below NOT finished yet
+class SpatialOCRNet_with_multi_exit(nn.Module):
+    def __init__(self, configer):
+        super(SpatialOCRNet_with_multi_exit, self).__init__()
+        self.configer = configer
+        self.ori_backbone = nn.ModuleList()
+        self.backbone = nn.ModuleList()
+        self.exit_list = self.configer.get('network', 'exit_list')
+        for i in range(len(self.exit_list)):
+            self.ori_backbone.append(SpatialOCRNet_with_only_exit(self.configer))
+            state_dict = torch.load('/home/slzhang/projects/ETBA/Train/openseg/checkpoints/cityscapes_metric_controlled/split_point_{}/model_best.pth'.format(self.exit_list[i]))
+            new_dict = OrderedDict()
+
+            for k,v in self.ori_backbone[i].state_dict().items():
+                new_dict[k] = state_dict['module.'+k]
+            self.ori_backbone[i].load_state_dict(new_dict, strict=True)
+
+        ori_backbone_copy = copy.deepcopy(self.ori_backbone)
+
+        for i in range(len(self.exit_list)):
+            if i == 0:
+                flatt_model = nn.Sequential(*list(ori_backbone_copy[i].backbone_s1.children())[:-1])
+                self.backbone.append(flatt_model)
+            else:
+                print('-------------------')
+                backbone = nn.Sequential()
+                last_bottleneck_num = 0
+                for layer in ori_backbone_copy[i-1].backbone_s1.named_modules():
+                    if isinstance(layer[1], Bottleneck) and 'exit' not in layer[0]:
+                        last_bottleneck_num = last_bottleneck_num + 1
+
+                cnt = 0
+                for layer in ori_backbone_copy[i].backbone_s1.named_modules():
+                    if isinstance(layer[1], Bottleneck) and 'exit' not in layer[0]:
+                        cnt = cnt + 1
+                        if cnt > last_bottleneck_num:
+                            backbone.add_module(layer[0].replace('.',' '), layer[1])
+
+                self.backbone.append(backbone)
+            for k,v in self.backbone[i].named_parameters():
+                v.requires_grad=True
+            for k,v in self.ori_backbone[i].named_parameters():
+                v.requires_grad=True
+
+    def forward(self, x):
+        x_ = x
+        output = []
+        for i in range(len(self.exit_list)):
+            x = self.backbone_s1(x)
+            x1_dsn = self.dsn_head(x[-2])
+            x1 = self.conv_3x3(x[-1])
+            context1 = self.spatial_context_head(x1, x1_dsn)
+            x1 = self.spatial_ocr_head(x1, context1)
+            x1 = self.head(x1)
+            x1_dsn = F.interpolate(x1_dsn, size=(x_.size(2), x_.size(3)), mode="bilinear", align_corners=True)
+            x1 = F.interpolate(x1, size=(x_.size(2), x_.size(3)), mode="bilinear", align_corners=True)
+
+        return output
+
 class SpatialOCRNet_with_exit(nn.Module):
     """
     Object-Contextual Representations for Semantic Segmentation,
@@ -156,6 +217,7 @@ class SpatialOCRNet_with_exit(nn.Module):
     """
     def __init__(self, configer):
         self.inplanes = 128
+        self.for_finetune = True
         super(SpatialOCRNet_with_exit, self).__init__()
         self.configer = configer
         self.num_classes = self.configer.get('data', 'num_classes')
@@ -256,6 +318,47 @@ class SpatialOCRNet_with_exit(nn.Module):
         x2_dsn = F.interpolate(x2_dsn, size=(x_.size(2), x_.size(3)), mode="bilinear", align_corners=True)
         x2 = F.interpolate(x2, size=(x_.size(2), x_.size(3)), mode="bilinear", align_corners=True)
         return  x1_dsn, x1, x2_dsn, x2
+
+    def load_parameters(self):
+        net_wth_finalhead = torch.load("/home/slzhang/projects/ETBA/Train/openseg/checkpoints/spatial_ocrnet_deepbase_resnet101_dilated8_1_latest.pth")
+        split_point = self.configer.get('network', 'split_point')
+        print(split_point)
+        net_wth_eehead = torch.load("/home/slzhang/projects/ETBA/Train/openseg/checkpoints/cityscapes_metric_controlled/split_point_{}/ocrnet_resnet101_s{}_max_performance.pth".format(split_point,split_point))
+
+        dict_finalhead = net_wth_finalhead['state_dict'].copy()
+        dict_eehead = net_wth_eehead['state_dict'].copy()
+        dict_dualhead = OrderedDict()
+
+        for k,v in net_wth_eehead['state_dict'].items():
+            print(k)
+
+        for k,v in self.state_dict().items():
+            if 'num_batches_tracked' not in k:
+                if 'backbone_s1.resinit' in k:
+                    dict_dualhead[k] = dict_finalhead['module.backbone'+k[11:]]
+                elif 'backbone_s1.pre' in k:
+                    dict_dualhead[k] = dict_finalhead['module.backbone.'+k[16:]]
+                elif 'backbone_s1.exit' in k:
+                    dict_dualhead[k] = dict_eehead['module.'+k]
+                elif 'backbone_s2.layer3' in k:
+                    new_idx = int(k.split('.')[2]) + split_point-7
+                    dict_dualhead[k] = dict_finalhead['module.backbone.layer3.'+str(new_idx)+'.'+'.'.join(k.split('.')[3:])]
+                elif 'backbone_s2.layer4' in k:
+                    dict_dualhead[k] = dict_finalhead['module.backbone.'+k[12:]]
+                elif 'conv_3x3_s1' in k:
+                    dict_dualhead[k] = dict_eehead['module.conv_3x3' + k[11:]]
+                elif 'conv_3x3_s2' in k:
+                    dict_dualhead[k] = dict_finalhead['module.conv_3x3' + k[11:]]
+                elif 'head_s1' in k:
+                    dict_dualhead[k] = dict_eehead['module.'+k.split('.')[0][:-3]+'.'+'.'.join(k.split('.')[1:])]
+                elif 'head_s2' in k:
+                    dict_dualhead[k] = dict_finalhead['module.'+k.split('.')[0][:-3]+'.'+'.'.join(k.split('.')[1:])]     
+
+
+        self.load_state_dict(dict_dualhead)
+        # for k,v in self.named_parameters():
+        #     if v.requires_grad == True:
+        #         print(k)
 
 
 class ASPOCRNet(nn.Module):
