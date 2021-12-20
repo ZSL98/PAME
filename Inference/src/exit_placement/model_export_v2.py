@@ -189,7 +189,12 @@ def model_export_func(model_name, begin_point, split_point, exit_type=False):
     s2_model.eval()
 
     # tmp_model = SpatialOCRNet()
-    # tmp_model = model
+    # tmp_model = posenet_s1(layers=[3, 4, 23, 3],
+    #                             begin_point=0,
+    #                             split_point_s1=33, 
+    #                             split_point_s2=33, 
+    #                             split_point_s3=33, 
+    #                             is_init=True)
     # s2_input_names = ["input"]
     # # s2_output_names = ["output_dsn", "output"]
     # s2_output_names = ["output"]

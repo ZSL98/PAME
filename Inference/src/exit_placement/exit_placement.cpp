@@ -316,7 +316,7 @@ bool Profiler::construct_s2(
         min_dims_0.d[0] = batch_size_s2_;
         min_dims_0.d[1] = sequence_length;
         nvinfer1::Dims opt_dims_0 = input_dims_s2_0;
-        opt_dims_0.d[0] = batch_size_s2_;
+        opt_dims_0.d[0] = batch_size_s1_;
         opt_dims_0.d[1] = sequence_length;
         nvinfer1::Dims max_dims_0 = input_dims_s2_0;
         max_dims_0.d[0] = batch_size_s1_;
@@ -326,7 +326,7 @@ bool Profiler::construct_s2(
         min_dims_1.d[0] = batch_size_s2_;
         min_dims_1.d[1] = sequence_length;
         nvinfer1::Dims opt_dims_1 = input_dims_s2_1;
-        opt_dims_1.d[0] = batch_size_s2_;
+        opt_dims_1.d[0] = batch_size_s1_;
         opt_dims_1.d[1] = sequence_length;
         nvinfer1::Dims max_dims_1 = input_dims_s2_1;
         max_dims_1.d[0] = batch_size_s1_;
@@ -353,7 +353,7 @@ bool Profiler::construct_s2(
         nvinfer1::Dims min_dims = input_dims_s2;
         min_dims.d[0] = batch_size_s2_;
         nvinfer1::Dims opt_dims = input_dims_s2;
-        opt_dims.d[0] = batch_size_s2_;
+        opt_dims.d[0] = batch_size_s1_;
         nvinfer1::Dims max_dims = input_dims_s2;
         max_dims.d[0] = batch_size_s1_;
 
@@ -908,8 +908,8 @@ bool model_generation(std::string model_name, const int start_point, const int e
 
 int main(int argc, char** argv)
 {
-    // int nGpuId = 2;
-    // cudaSetDevice(nGpuId);
+    int nGpuId = 1;
+    cudaSetDevice(nGpuId);
     // int leastPriority;
     // int greatestPriority;
     // cudaDeviceGetStreamPriorityRange (&leastPriority, &greatestPriority );
