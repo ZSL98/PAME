@@ -47,7 +47,7 @@ __global__ void max_reduction_resnet(float *v, int *v_r) {
 	}
 }
 
-__global__ void max_reduction_posenet(float *v, float *v_r) {
+__global__ void max_reduction_posenet(float *v, int *v_r) {
 	// int tid = blockIdx.x * blockDim.x + threadIdx.x;
 	float max_p = 0;
 	for (int s = 0; s < 96*96; s++){
@@ -76,7 +76,7 @@ __global__ void max_reduction_posenet(float *v, float *v_r) {
 	}
 }
 
-__global__ void max_reduction_openseg(float *v, float *v_r) {
+__global__ void max_reduction_openseg(float *v, int *v_r) {
 	// int tid = blockIdx.x * blockDim.x + threadIdx.x;
 	int bid = blockIdx.y * gridDim.x + blockIdx.x;
 	int tid = bid * blockDim.x + threadIdx.x;
@@ -110,6 +110,15 @@ __global__ void max_reduction_openseg(float *v, float *v_r) {
 
 void max_reduction_r(float *v, int *v_r, const cudaStream_t& stream = 0) {
     max_reduction_resnet<<<32, 1000, 0, stream>>> (v, v_r);
+}
+
+void max_reduction_p(float *v, int *v_r, const cudaStream_t& stream = 0) {
+    max_reduction_posenet<<<32, 16, 0, stream>>> (v, v_r);
+}
+
+void max_reduction_o(float *v, int *v_r, const cudaStream_t& stream = 0) {
+	dim3 grid_dim(32,1024*2048);
+    max_reduction_openseg<<<grid_dim, 19, 0, stream>>> (v, v_r);
 }
 
 //TODO: Below not finished.
