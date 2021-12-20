@@ -168,6 +168,7 @@ def parse_args():
     )
     parser.add_argument("--hub_token", type=str, help="The token to use to push to the Model Hub.")
 
+    # etba customized arguments
     parser.add_argument(
         "--do_train",
         action="store_true",
@@ -178,6 +179,7 @@ def parse_args():
         action="store_true",
         help="Whether do evaluation after training",
     )
+    parser.add_argument("--augment_layers", type=int, nargs="+", help="layers to augment early exit")
 
     args = parser.parse_args()
 
@@ -299,6 +301,7 @@ def main():
             "You can do it from another script, save it, and load it from here, using --tokenizer_name."
         )        
     if args.model_type == 'etba':
+        config.augment_layers = args.augment_layers if args.augment_layers else list(range(config.num_hidden_layers))
         model = BertWithETBAForSequenceClassification.from_pretrained(
             args.model_name_or_path,
             from_tf=bool(".ckpt" in args.model_name_or_path),
@@ -455,52 +458,108 @@ def main():
             metric = load_metric("accuracy")
 
     # Train!
-    total_batch_size = args.per_device_train_batch_size * accelerator.num_processes * args.gradient_accumulation_steps
+    if args.do_train:
+        total_batch_size = args.per_device_train_batch_size * accelerator.num_processes * args.gradient_accumulation_steps
 
-    logger.info("***** Running training *****")
-    logger.info(f"  Num examples = {len(train_dataset)}")
-    logger.info(f"  Num Epochs = {args.num_train_epochs}")
-    logger.info(f"  Instantaneous batch size per device = {args.per_device_train_batch_size}")
-    logger.info(f"  Total train batch size (w. parallel, distributed & accumulation) = {total_batch_size}")
-    logger.info(f"  Gradient Accumulation steps = {args.gradient_accumulation_steps}")
-    logger.info(f"  Total optimization steps = {args.max_train_steps}")
-    # Only show the progress bar once on each machine.
-    progress_bar = tqdm(range(args.max_train_steps), disable=not accelerator.is_local_main_process)
-    completed_steps = 0
+        logger.info("***** Running training *****")
+        logger.info(f"  Num examples = {len(train_dataset)}")
+        logger.info(f"  Num Epochs = {args.num_train_epochs}")
+        logger.info(f"  Instantaneous batch size per device = {args.per_device_train_batch_size}")
+        logger.info(f"  Total train batch size (w. parallel, distributed & accumulation) = {total_batch_size}")
+        logger.info(f"  Gradient Accumulation steps = {args.gradient_accumulation_steps}")
+        logger.info(f"  Total optimization steps = {args.max_train_steps}")
+        # Only show the progress bar once on each machine.
+        progress_bar = tqdm(range(args.max_train_steps), disable=not accelerator.is_local_main_process)
+        completed_steps = 0
 
-    if accelerator.is_main_process:
-        tb_writer = SummaryWriter(args.output_dir)
+        if accelerator.is_main_process:
+            tb_writer = SummaryWriter(args.output_dir)
 
-    for epoch in range(args.num_train_epochs):
-        model.train()
-        for step, batch in enumerate(train_dataloader):
-            outputs = model(**batch)
-            loss = outputs.loss
-            loss = loss / args.gradient_accumulation_steps
-            accelerator.backward(loss)
-            if step % args.gradient_accumulation_steps == 0 or step == len(train_dataloader) - 1:
-                optimizer.step()
-                lr_scheduler.step()
-                optimizer.zero_grad()
-                progress_bar.update(1)
-                completed_steps += 1
+        for epoch in range(args.num_train_epochs):
+            model.train()
+            for step, batch in enumerate(train_dataloader):
+                outputs = model(**batch)
+                loss = outputs.loss
+                loss = loss / args.gradient_accumulation_steps
+                accelerator.backward(loss)
+                if step % args.gradient_accumulation_steps == 0 or step == len(train_dataloader) - 1:
+                    optimizer.step()
+                    lr_scheduler.step()
+                    optimizer.zero_grad()
+                    progress_bar.update(1)
+                    completed_steps += 1
 
-            if completed_steps >= args.max_train_steps:
-                break
+                if completed_steps >= args.max_train_steps:
+                    break
 
-            # # # logging
-            # if accelerator.is_main_process and args.logging_steps > 0 and  completed_steps % args.logging_steps == 0:
-            #     tb_writer.add_scalar('lr', lr_scheduler.get_last_lr()[0], completed_steps)
-            #     tb_writer.add_scalar('loss', (tr_loss - logging_loss)/args.logging_steps, completed_steps)
-            #     logging_loss = tr_loss
-            #     if args.model_type == 'etba':
-            #         pass
+                # # # logging
+                # if accelerator.is_main_process and args.logging_steps > 0 and  completed_steps % args.logging_steps == 0:
+                #     tb_writer.add_scalar('lr', lr_scheduler.get_last_lr()[0], completed_steps)
+                #     tb_writer.add_scalar('loss', (tr_loss - logging_loss)/args.logging_steps, completed_steps)
+                #     logging_loss = tr_loss
+                #     if args.model_type == 'etba':
+                #         pass
 
+            model.eval()
+            for step, batch in enumerate(eval_dataloader):
+                outputs = model(**batch)
+                if args.model_type == 'etba':
+                    for i in range(config.num_hidden_layers):
+                        if not i in config.augment_layers:
+                            continue
+                        predictions = outputs.logits[i].argmax(dim=-1) if not is_regression else outputs.logits[i].squeeze()
+                        metric[i].add_batch(
+                            predictions=accelerator.gather(predictions),
+                            references=accelerator.gather(batch["labels"]),
+                        )                    
+                else:
+                    predictions = outputs.logits.argmax(dim=-1) if not is_regression else outputs.logits.squeeze()
+                    metric.add_batch(
+                        predictions=accelerator.gather(predictions),
+                        references=accelerator.gather(batch["labels"]),
+                    )
+
+            if args.model_type == 'etba':
+                eval_metric = [metric[i].compute() if i in config.augment_layers else None for i in range(config.num_hidden_layers)]
+                for i in range(config.num_hidden_layers):
+                    if not i in config.augment_layers:
+                        continue
+                    logger.info(f"epoch {epoch} layer {i}: {eval_metric[i]}")
+            else:
+                eval_metric = metric.compute()
+                logger.info(f"epoch {epoch}: {eval_metric}")
+
+            # logging
+            if accelerator.is_main_process :
+                if args.model_type == 'etba':
+                    for i in range(config.num_hidden_layers):
+                        if not i in config.augment_layers:
+                            continue
+                        for key in eval_metric[i]:
+                            tb_writer.add_scalar(f'eval_{key}_layer_{i}', eval_metric[i][key], epoch)
+                else:
+                    for key in eval_metric:
+                        tb_writer.add_scalar(f'eval_{key}', eval_metric[key], epoch)
+
+            if args.push_to_hub and epoch < args.num_train_epochs - 1:
+                accelerator.wait_for_everyone()
+                unwrapped_model = accelerator.unwrap_model(model)
+                unwrapped_model.save_pretrained(args.output_dir, save_function=accelerator.save)
+                if accelerator.is_main_process:
+                    tokenizer.save_pretrained(args.output_dir)
+                    repo.push_to_hub(
+                        commit_message=f"Training in progress epoch {epoch}", blocking=False, auto_lfs_prune=True
+                    )
+
+    if args.do_evaluate:
+        logger.info("***** Running evaluation *****")
         model.eval()
         for step, batch in enumerate(eval_dataloader):
             outputs = model(**batch)
             if args.model_type == 'etba':
                 for i in range(config.num_hidden_layers):
+                    if not i in config.augment_layers:
+                        continue
                     predictions = outputs.logits[i].argmax(dim=-1) if not is_regression else outputs.logits[i].squeeze()
                     metric[i].add_batch(
                         predictions=accelerator.gather(predictions),
@@ -514,32 +573,14 @@ def main():
                 )
 
         if args.model_type == 'etba':
-            eval_metric = [metric[i].compute() for i in range(config.num_hidden_layers)]
+            eval_metric = [metric[i].compute() if i in config.augment_layers else None for i in range(config.num_hidden_layers)]
             for i in range(config.num_hidden_layers):
-                logger.info(f"epoch {epoch} layer {i}: {eval_metric[i]}")
+                if not i in config.augment_layers:
+                    continue
+                logger.info(f"eval layer {i}: {eval_metric[i]}")
         else:
             eval_metric = metric.compute()
-            logger.info(f"epoch {epoch}: {eval_metric}")
-
-        # logging
-        if accelerator.is_main_process :
-            if args.model_type == 'etba':
-                for i in range(config.num_hidden_layers):
-                    for key in eval_metric[i]:
-                        tb_writer.add_scalar(f'eval_{key}_layer_{i}', eval_metric[i][key], epoch)
-            else:
-                for key in eval_metric:
-                    tb_writer.add_scalar(f'eval_{key}', eval_metric[key], epoch)
-
-        if args.push_to_hub and epoch < args.num_train_epochs - 1:
-            accelerator.wait_for_everyone()
-            unwrapped_model = accelerator.unwrap_model(model)
-            unwrapped_model.save_pretrained(args.output_dir, save_function=accelerator.save)
-            if accelerator.is_main_process:
-                tokenizer.save_pretrained(args.output_dir)
-                repo.push_to_hub(
-                    commit_message=f"Training in progress epoch {epoch}", blocking=False, auto_lfs_prune=True
-                )
+            logger.info(f"eval: {eval_metric}")
 
     if args.output_dir is not None:
         accelerator.wait_for_everyone()
