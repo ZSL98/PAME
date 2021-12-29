@@ -1830,9 +1830,9 @@ class BertWithSinglehead(BertPreTrainedModel):
             param.requires_grad = True
 
         del(self.bert)
-        for k,v in self.named_parameters():
-            if v.requires_grad == True:
-                print(k)
+        # for k,v in self.named_parameters():
+        #     if v.requires_grad == True:
+        #         print(k)
         # self.init_weights()
 
     def forward(

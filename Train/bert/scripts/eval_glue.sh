@@ -1,6 +1,6 @@
 # choose from 'cola', 'mnli', 'mrpc', 'qnli', 'qqp', 'rte', 'sst2', 'stsb', 'wnli'
 TASK_NAME='mrpc'
-CKPT_DIR=tmp/model/glue/mrpc/debug/seed_42_12-20-21-40/
+CKPT_DIR=tmp/model/glue/mrpc/debug/seed_42_12-21-15-36/
 
 SEED=42
 
@@ -15,7 +15,7 @@ mkdir -p ${OUTPUT_DIR}
 
 python -u src/run_glue_no_trainer.py \
   --model_type etba \
-  --augment_layer 5 6 7 8 9 10 11 \
+  --augment_layer 5\
   --model_name_or_path ${CKPT_DIR} \
   --tokenizer_name bert-base-uncased \
   --do_evaluate \

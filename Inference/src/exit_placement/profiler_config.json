@@ -1,7 +1,7 @@
 {
-    "bs_s1": 32,
-    "bs_s2": 32,
-    "b_interval": 8,
+    "bs_s1": 8,
+    "bs_s2": 8,
+    "b_interval": 2,
     "log_lvl": "INFO",
     "bs_num": 200,
     "test_iter": 1,

@@ -76,8 +76,8 @@ class StandardEvaluator(_BaseEvaluator):
         if isinstance(outputs, torch.Tensor):
             outputs = [outputs]
 
-        for i in range(len(outputs[0])):
-
+        # for i in range(len(outputs)):
+        for i in range(1):
             ori_img_size = metas[i]['ori_img_size']
             border_size = metas[i]['border_size']
 

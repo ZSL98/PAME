@@ -1011,7 +1011,7 @@ int main(int argc, char** argv)
     config_doc.ParseStream(config_fs);
 
     std::ofstream outFile;
-    // Py_Initialize();
+    Py_Initialize();
     int extend_max_block = 1;
     if (config_doc["seperate_or_not"].GetBool()){
         for (int split_point = config_doc["split_point"].GetUint(); split_point < config_doc["termi_point"].GetUint(); split_point=split_point+config_doc["stage_interval"].GetUint())
@@ -1092,6 +1092,6 @@ int main(int argc, char** argv)
         std::cout << "Average elapsed time of the begin-from-" << config_doc["begin_point"].GetUint() << " model: " 
                     << avg_elapsed_time << std::endl;
     }
-    // Py_Finalize();
+    Py_Finalize();
     return 0;
 }

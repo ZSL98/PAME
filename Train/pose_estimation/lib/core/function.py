@@ -150,7 +150,7 @@ def train(config, train_loader, model, criterion, optimizer, epoch,
             save_debug_images(config, input, meta, target, pred*4, output,
                               prefix)
 
-def validate_exit(config, val_loader, val_dataset, model, criterion, output_dir,
+def validate_exit(config, val_loader, val_dataset, model, exit_list, criterion, output_dir,
              tb_log_dir, writer_dict=None):
     batch_time = AverageMeter()
     losses = AverageMeter()
@@ -169,105 +169,111 @@ def validate_exit(config, val_loader, val_dataset, model, criterion, output_dir,
     idx = 0
     with torch.no_grad():
         end = time.time()
-        for i, (input, target, target_weight, meta) in enumerate(val_loader):
-            # compute output
-            output = model(input)
-            exit_output = output[0]
-            if config.TEST.FLIP_TEST:
-                # this part is ugly, because pytorch has not supported negative index
-                # input_flipped = model(input[:, :, :, ::-1])
-                input_flipped = np.flip(input.cpu().numpy(), 3).copy()
-                input_flipped = torch.from_numpy(input_flipped).cuda()
-                output_flipped = model(input_flipped)
-                exit_output_flipped = output_flipped[0]
-                exit_output_flipped = flip_back(exit_output_flipped.cpu().numpy(),
-                                           val_dataset.flip_pairs)
-                exit_output_flipped = torch.from_numpy(exit_output_flipped.copy()).cuda()
+        for exit in range(len(exit_list)):
+            all_preds = np.zeros((num_samples, config.MODEL.NUM_JOINTS, 3),
+                                dtype=np.float32)
+            all_boxes = np.zeros((num_samples, 6))
+            idx = 0
+            for i, (input, target, target_weight, meta) in enumerate(val_loader):
+                # compute output
+                output = model(input)
+                exit_output = output[exit]
+                if config.TEST.FLIP_TEST:
+                    # this part is ugly, because pytorch has not supported negative index
+                    # input_flipped = model(input[:, :, :, ::-1])
+                    input_flipped = np.flip(input.cpu().numpy(), 3).copy()
+                    input_flipped = torch.from_numpy(input_flipped).cuda()
+                    output_flipped = model(input_flipped)
+                    exit_output_flipped = output_flipped[0]
+                    exit_output_flipped = flip_back(exit_output_flipped.cpu().numpy(),
+                                            val_dataset.flip_pairs)
+                    exit_output_flipped = torch.from_numpy(exit_output_flipped.copy()).cuda()
 
-                # feature is not aligned, shift flipped heatmap for higher accuracy
-                if config.TEST.SHIFT_HEATMAP:
-                    exit_output_flipped[:, :, :, 1:] = \
-                        exit_output_flipped.clone()[:, :, :, 0:-1]
-                    # exit_output_flipped[:, :, :, 0] = 0
+                    # feature is not aligned, shift flipped heatmap for higher accuracy
+                    if config.TEST.SHIFT_HEATMAP:
+                        exit_output_flipped[:, :, :, 1:] = \
+                            exit_output_flipped.clone()[:, :, :, 0:-1]
+                        # exit_output_flipped[:, :, :, 0] = 0
 
-                exit_output = (exit_output + exit_output_flipped) * 0.5
+                    exit_output = (exit_output + exit_output_flipped) * 0.5
 
-            target = target.cuda(non_blocking=True)
-            target_weight = target_weight.cuda(non_blocking=True)
+                target = target.cuda(non_blocking=True)
+                target_weight = target_weight.cuda(non_blocking=True)
 
-            loss = criterion(output, target, target_weight)
+                loss = criterion(output, target, target_weight)
 
-            num_images = input.size(0)
-            # measure accuracy and record loss
-            losses.update(loss.item(), num_images)
-            _, avg_acc, cnt, pred = accuracy(exit_output.cpu().numpy(),
-                                             target.cpu().numpy())
+                num_images = input.size(0)
+                # measure accuracy and record loss
+                losses.update(loss.item(), num_images)
+                _, avg_acc, cnt, pred = accuracy(exit_output.cpu().numpy(),
+                                                target.cpu().numpy())
 
 
-            acc.update(avg_acc, cnt)
+                acc.update(avg_acc, cnt)
 
-            # measure elapsed time
-            batch_time.update(time.time() - end)
-            end = time.time()
+                # measure elapsed time
+                batch_time.update(time.time() - end)
+                end = time.time()
 
-            c = meta['center'].numpy()
-            s = meta['scale'].numpy()
-            score = meta['score'].numpy()
+                c = meta['center'].numpy()
+                s = meta['scale'].numpy()
+                score = meta['score'].numpy()
 
-            preds, maxvals = get_final_preds(
-                config, exit_output.clone().cpu().numpy(), c, s)
+                preds, maxvals = get_final_preds(
+                    config, exit_output.clone().cpu().numpy(), c, s)
 
-            all_preds[idx:idx + num_images, :, 0:2] = preds[:, :, 0:2]
-            all_preds[idx:idx + num_images, :, 2:3] = maxvals
-            # double check this all_boxes parts
-            all_boxes[idx:idx + num_images, 0:2] = c[:, 0:2]
-            all_boxes[idx:idx + num_images, 2:4] = s[:, 0:2]
-            all_boxes[idx:idx + num_images, 4] = np.prod(s*200, 1)
-            all_boxes[idx:idx + num_images, 5] = score
-            image_path.extend(meta['image'])
-            if config.DATASET.DATASET == 'posetrack':
-                filenames.extend(meta['filename'])
-                imgnums.extend(meta['imgnum'].numpy())
+                all_preds[idx:idx + num_images, :, 0:2] = preds[:, :, 0:2]
+                all_preds[idx:idx + num_images, :, 2:3] = maxvals
+                # double check this all_boxes parts
+                all_boxes[idx:idx + num_images, 0:2] = c[:, 0:2]
+                all_boxes[idx:idx + num_images, 2:4] = s[:, 0:2]
+                all_boxes[idx:idx + num_images, 4] = np.prod(s*200, 1)
+                all_boxes[idx:idx + num_images, 5] = score
+                image_path.extend(meta['image'])
+                if config.DATASET.DATASET == 'posetrack':
+                    filenames.extend(meta['filename'])
+                    imgnums.extend(meta['imgnum'].numpy())
 
-            idx += num_images
+                idx += num_images
 
-            if i % config.PRINT_FREQ == 0:
-                # wandb.log({"acc":acc, "loss":loss})
-                msg = 'Test: [{0}/{1}]\t' \
-                      'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t' \
-                      'Loss {loss.val:.4f} ({loss.avg:.4f})\t' \
-                      'Accuracy {acc.val:.3f} ({acc.avg:.3f})'.format(
-                          i, len(val_loader), batch_time=batch_time,
-                          loss=losses, acc=acc)
-                logger.info(msg)
+                if i % config.PRINT_FREQ == 0:
+                    # wandb.log({"acc":acc, "loss":loss})
+                    msg = 'Test: [{0}/{1}]\t' \
+                        'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t' \
+                        'Loss {loss.val:.4f} ({loss.avg:.4f})\t' \
+                        'Accuracy {acc.val:.3f} ({acc.avg:.3f})'.format(
+                            i, len(val_loader), batch_time=batch_time,
+                            loss=losses, acc=acc)
+                    logger.info(msg)
 
-                prefix = '{}_{}'.format(os.path.join(output_dir, 'val'), i)
-                save_debug_images(config, input, meta, target, pred*4, exit_output,
-                                  prefix)
+                    prefix = '{}_{}'.format(os.path.join(output_dir, 'val'), i)
+                    save_debug_images(config, input, meta, target, pred*4, exit_output,
+                                    prefix)
 
-        name_values, perf_indicator = val_dataset.evaluate(
-            config, all_preds, output_dir, all_boxes, image_path,
-            filenames, imgnums)
+            name_values, perf_indicator = val_dataset.evaluate(
+                config, all_preds, output_dir, all_boxes, image_path,
+                filenames, imgnums)
 
-        _, full_arch_name = get_model_name(config)
-        if isinstance(name_values, list):
-            for name_value in name_values:
-                _print_name_value(name_value, full_arch_name)
-        else:
-            _print_name_value(name_values, full_arch_name)
-
-        if writer_dict:
-            writer = writer_dict['writer']
-            global_steps = writer_dict['valid_global_steps']
-            writer.add_scalar('valid_loss', losses.avg, global_steps)
-            writer.add_scalar('valid_acc', acc.avg, global_steps)
+            _, full_arch_name = get_model_name(config)
             if isinstance(name_values, list):
                 for name_value in name_values:
-                    writer.add_scalars('valid', dict(name_value), global_steps)
+                    _print_name_value(name_value, full_arch_name)
             else:
-                writer.add_scalars('valid', dict(name_values), global_steps)
-            writer_dict['valid_global_steps'] = global_steps + 1
+                _print_name_value(name_values, full_arch_name)
 
+            if writer_dict:
+                writer = writer_dict['writer']
+                global_steps = writer_dict['valid_global_steps']
+                writer.add_scalar('valid_loss', losses.avg, global_steps)
+                writer.add_scalar('valid_acc', acc.avg, global_steps)
+                if isinstance(name_values, list):
+                    for name_value in name_values:
+                        writer.add_scalars('valid', dict(name_value), global_steps)
+                else:
+                    writer.add_scalars('valid', dict(name_values), global_steps)
+                writer_dict['valid_global_steps'] = global_steps + 1
+
+            wandb.log({"perf_indicator_e{}".format(exit_list[exit]):perf_indicator})
     return perf_indicator
 
 def validate(config, val_loader, val_dataset, model, criterion, output_dir,

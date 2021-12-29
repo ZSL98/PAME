@@ -690,6 +690,8 @@ class backbone_s1(nn.Module):
         elif self.pre_layer[3] == 0:
             self.exit = self._make_complex_exit(3, stride=2)
             self.exit[-1].apply(partial(self._nostride_dilate, dilate=4))
+        else:
+            self.exit = nn.Sequential()
 
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
