@@ -13,6 +13,7 @@ import os
 import pprint
 import shutil
 import wandb
+from collections import OrderedDict
 
 import torch
 import torch.nn.parallel
@@ -80,16 +81,16 @@ def main():
     args = parse_args()
     reset_config(config, args)
 
-    # wandb.init(
-    #     # Set entity to specify your username or team name
-    #     # ex: entity="carey",
-    #     # Set the project where this run will be logged
-    #     project="posenet_train", 
-    #     name="finetune",
-    #     # Track hyperparameters and run metadata
-    #     config={
-    #     "architecture": "resnet101",
-    #     "dataset": "mpii",})
+    wandb.init(
+        # Set entity to specify your username or team name
+        # ex: entity="carey",
+        # Set the project where this run will be logged
+        project="posenet_train", 
+        name="finetune_freeze_backbone",
+        # Track hyperparameters and run metadata
+        config={
+        "architecture": "resnet101",
+        "dataset": "mpii",})
 
     logger, final_output_dir, tb_log_dir = create_logger(
         config, args.cfg, 'train')
@@ -102,7 +103,13 @@ def main():
     torch.backends.cudnn.deterministic = config.CUDNN.DETERMINISTIC
     torch.backends.cudnn.enabled = config.CUDNN.ENABLED
 
-    model = models.pose_resnet.get_pose_net_with_multi_exit(config, is_train=True, exit_list=[10, 16, 33])
+    exit_list = [1,4,7,10,13,16,19,22,25,28,31,33]
+    model = models.pose_resnet.get_pose_net_with_multi_exit(config, is_train=True, exit_list=exit_list)
+    # state_dict = torch.load('/home/slzhang/projects/ETBA/Train/pose_estimation/checkpoints/model_best_7-28.pth')
+    # new_dict = OrderedDict()
+    # for k,v in model.state_dict().items():
+    #     new_dict[k] = state_dict['module.'+k]
+    # model.load_state_dict(new_dict)
     # model = model.train()
     model = model.cuda()
     # model = eval('models.'+config.MODEL.NAME+'.get_pose_net_with_multi_exit')(
@@ -189,7 +196,7 @@ def main():
 
 
         # evaluate on validation set
-        perf_indicator = validate_exit(config, valid_loader, valid_dataset, model,
+        perf_indicator = validate_exit(config, valid_loader, valid_dataset, model, exit_list,
                                   criterion, final_output_dir, tb_log_dir,
                                   writer_dict)
 
@@ -199,7 +206,7 @@ def main():
         else:
             best_model = False
 
-        save_dir = '/home/slzhang/projects/ETBA/Train/pose_estimation/checkpoints/'
+        save_dir = '/home/slzhang/projects/ETBA/Train/pose_estimation/checkpoints/finetuned'
         logger.info('=> saving checkpoint to {}'.format(save_dir))
         save_checkpoint({
             'epoch': epoch + 1,

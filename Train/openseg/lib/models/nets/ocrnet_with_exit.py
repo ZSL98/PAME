@@ -26,7 +26,7 @@ class SpatialOCRNet_with_only_exit(nn.Module):
     Object-Contextual Representations for Semantic Segmentation,
     Yuan, Yuhui and Chen, Xilin and Wang, Jingdong
     """
-    def __init__(self, configer):
+    def __init__(self, configer, split_point = None):
         self.inplanes = 128
         self.for_finetune = None
         super(SpatialOCRNet_with_only_exit, self).__init__()
@@ -34,7 +34,8 @@ class SpatialOCRNet_with_only_exit(nn.Module):
         self.num_classes = self.configer.get('data', 'num_classes')
         self.split_point = self.configer.get('network', 'split_point')
         # self.backbone_s1 = BackboneSelector(configer).get_backbone()
-        split_point = self.configer.get("network", "split_point")
+        if split_point is None:
+            split_point = self.configer.get("network", "split_point")
         self.backbone_s1 = backbone_s1(start_point=split_point, end_point=split_point, bn_type='implace_abn')
 
         # extra added layers
@@ -66,18 +67,6 @@ class SpatialOCRNet_with_only_exit(nn.Module):
         self.init_weights()
 
     def init_weights(self):
-        # model_pretrained = models.resnet101(pretrained=True)
-        # new_list = list (self.backbone_s1.state_dict().keys())
-        # trained_list = list (model_pretrained.state_dict().keys())
-
-        # dict_trained = model_pretrained.state_dict().copy()
-        # dict_new = self.backbone_s1.state_dict().copy()
-        
-        # checkpoint = torch.load("/home/slzhang/projects/ETBA/Train/openseg/pretrained_model/resnet101-5d3b4d8f.pth")
-        # dict_s1 = self.backbone_s1.state_dict().copy()
-
-        # head_checkpoint = torch.load("/home/slzhang/projects/ETBA/Train/openseg/checkpoints/cityscapes/ocrnet_resnet101_s" + \
-        #                             str(self.split_point+1) + "_latest.pth")
         head_checkpoint = torch.load("/home/slzhang/projects/ETBA/Train/openseg/checkpoints/spatial_ocrnet_deepbase_resnet101_dilated8_1_latest.pth")
         # head_checkpoint_2 = torch.load("/home/slzhang/projects/ETBA/Train/openseg/checkpoints/cityscapes/ocrnet_resnet101_s8_latest_trained_2.pth")
 
@@ -101,29 +90,6 @@ class SpatialOCRNet_with_only_exit(nn.Module):
                     # copy the exit parameters
                     dict_new[k] = dict_trained['module.backbone.layer4'+k[16:]]
 
-        # dict_new['backbone_s1.resinit.conv1.weight'] = dict_trained_2['module.backbone_s1.resinit.conv1.weight']
-        # dict_new['backbone_s1.resinit.bn1.weight'] = dict_trained_2['module.backbone_s1.resinit.bn1.weight']
-        # dict_new['backbone_s1.resinit.bn1.bias'] = dict_trained_2['module.backbone_s1.resinit.bn1.bias']
-        # dict_new['backbone_s1.resinit.bn1.running_mean'] = dict_trained_2['module.backbone_s1.resinit.bn1.running_mean']
-        # dict_new['backbone_s1.resinit.bn1.running_var'] = dict_trained_2['module.backbone_s1.resinit.bn1.running_var']
-        # for k,v in self.state_dict().items():
-        #     if 'num_batches_tracked' not in k:
-        #         if 'backbone_s1.resinit' in k:
-        #             dict_new[k] = dict_trained_2['module.backbone_s1'+k[11:]]
-        #         elif 'backbone_s1.pre' in k:
-        #             dict_new[k] = dict_trained_2['module.backbone_s1.pre_'+k[16:]]
-        #         elif 'head' in k or 'conv_3x3' in k:
-        #             dict_new[k] = dict_trained['module.'+k]
-
-        # for k,v in self.state_dict().items():
-        #     for k1, v1 in head_checkpoint_2['state_dict'].items():
-        #         if k==k1[7:]:
-        #             dict_new[k] = dict_trained_2[k1]      
-
-        # for k,v in self.state_dict().items():
-        #     if 'backbone' not in k and 'num' not in k:
-        #         dict_new[k] = dict_trained['module.'+k]
-
         # freeze the backbone parameters
         for k,v in self.named_parameters():
             if 'backbone' in k and 'exit' not in k:
@@ -132,12 +98,6 @@ class SpatialOCRNet_with_only_exit(nn.Module):
                 v.requires_grad=True
         
         self.load_state_dict(dict_new)
-        # self.backbone_s1.load_state_dict(dict_new)
-        #     for k_s1,v_s1 in self.backbone_s1.state_dict().items():
-        #         if k == k_s1[4:]:
-        #             dict_s1[k_s1] = checkpoint[k]
-
-        # self.backbone_s1.load_state_dict(dict_s1)
 
     def forward(self, x_):
         x = self.backbone_s1(x_)
@@ -156,34 +116,38 @@ class SpatialOCRNet_with_multi_exit(nn.Module):
     def __init__(self, configer):
         super(SpatialOCRNet_with_multi_exit, self).__init__()
         self.configer = configer
+        self.for_finetune = None
         self.ori_backbone = nn.ModuleList()
+        self.ori_backbone_copy = nn.ModuleList()
         self.backbone = nn.ModuleList()
         self.exit_list = self.configer.get('network', 'exit_list')
+
         for i in range(len(self.exit_list)):
-            self.ori_backbone.append(SpatialOCRNet_with_only_exit(self.configer))
-            state_dict = torch.load('/home/slzhang/projects/ETBA/Train/openseg/checkpoints/cityscapes_metric_controlled/split_point_{}/model_best.pth'.format(self.exit_list[i]))
-            new_dict = OrderedDict()
+            self.ori_backbone.append(SpatialOCRNet_with_only_exit(self.configer, split_point=self.exit_list[i]))
+            self.ori_backbone_copy.append(SpatialOCRNet_with_only_exit(self.configer, split_point=self.exit_list[i]))
+            # state_dict = torch.load('/home/slzhang/projects/ETBA/Train/openseg/checkpoints/cityscapes_metric_controlled/split_point_{}/model_best.pth'.format(self.exit_list[i]))
+            # new_dict = OrderedDict()
 
-            for k,v in self.ori_backbone[i].state_dict().items():
-                new_dict[k] = state_dict['module.'+k]
-            self.ori_backbone[i].load_state_dict(new_dict, strict=True)
+            # for k,v in self.ori_backbone[i].state_dict().items():
+            #     new_dict[k] = state_dict['module.'+k]
+            # self.ori_backbone[i].load_state_dict(new_dict, strict=True)
 
-        ori_backbone_copy = copy.deepcopy(self.ori_backbone)
+        # self.ori_backbone_copy = copy.deepcopy(self.ori_backbone)
 
         for i in range(len(self.exit_list)):
             if i == 0:
-                flatt_model = nn.Sequential(*list(ori_backbone_copy[i].backbone_s1.children())[:-1])
+                flatt_model = nn.Sequential(*list(self.ori_backbone_copy[i].backbone_s1.children())[:-1])
                 self.backbone.append(flatt_model)
             else:
                 print('-------------------')
                 backbone = nn.Sequential()
                 last_bottleneck_num = 0
-                for layer in ori_backbone_copy[i-1].backbone_s1.named_modules():
+                for layer in self.ori_backbone_copy[i-1].backbone_s1.named_modules():
                     if isinstance(layer[1], Bottleneck) and 'exit' not in layer[0]:
                         last_bottleneck_num = last_bottleneck_num + 1
 
                 cnt = 0
-                for layer in ori_backbone_copy[i].backbone_s1.named_modules():
+                for layer in self.ori_backbone_copy[i].backbone_s1.named_modules():
                     if isinstance(layer[1], Bottleneck) and 'exit' not in layer[0]:
                         cnt = cnt + 1
                         if cnt > last_bottleneck_num:
@@ -195,18 +159,44 @@ class SpatialOCRNet_with_multi_exit(nn.Module):
             for k,v in self.ori_backbone[i].named_parameters():
                 v.requires_grad=True
 
+        self.dsn_head = nn.ModuleList()
+        self.exit = nn.ModuleList()
+        self.conv_3x3 = nn.ModuleList()
+        self.spatial_context_head = nn.ModuleList()
+        self.spatial_ocr_head = nn.ModuleList()
+        self.head = nn.ModuleList()
+
+        for i in range(len(self.exit_list)):
+            self.dsn_head.append(self.ori_backbone[i].dsn_head)
+            self.exit.append(self.ori_backbone[i].backbone_s1.exit)
+            self.conv_3x3.append(self.ori_backbone[i].conv_3x3)
+            self.spatial_context_head.append(self.ori_backbone[i].spatial_context_head)
+            self.spatial_ocr_head.append(self.ori_backbone[i].spatial_ocr_head)
+            self.head.append(self.ori_backbone[i].head)
+
+        del(self.ori_backbone)
+        del(self.ori_backbone_copy)
+
+        # print(self.backbone[0].named_children())
+        # print(self.backbone[1].named_children())
+        # for k,v in self.ori_backbone[i].backbone_s1.named_parameters():
+        #     print(k)
+
+
     def forward(self, x):
-        x_ = x
+        x_c = x
         output = []
         for i in range(len(self.exit_list)):
-            x = self.backbone_s1(x)
-            x1_dsn = self.dsn_head(x[-2])
-            x1 = self.conv_3x3(x[-1])
-            context1 = self.spatial_context_head(x1, x1_dsn)
-            x1 = self.spatial_ocr_head(x1, context1)
-            x1 = self.head(x1)
-            x1_dsn = F.interpolate(x1_dsn, size=(x_.size(2), x_.size(3)), mode="bilinear", align_corners=True)
-            x1 = F.interpolate(x1, size=(x_.size(2), x_.size(3)), mode="bilinear", align_corners=True)
+            x_c = self.backbone[i](x_c)
+            x1_dsn = self.dsn_head[i](x_c)
+            x1 = self.exit[i](x_c)
+            x1 = self.conv_3x3[i](x1)
+            context1 = self.spatial_context_head[i](x1, x1_dsn)
+            x1 = self.spatial_ocr_head[i](x1, context1)
+            x1 = self.head[i](x1)
+            x1_dsn = F.interpolate(x1_dsn, size=(x.size(2), x.size(3)), mode="bilinear", align_corners=True)
+            x1 = F.interpolate(x1, size=(x.size(2), x.size(3)), mode="bilinear", align_corners=True)
+            output.append([x1_dsn, x1])
 
         return output
 

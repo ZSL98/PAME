@@ -281,6 +281,23 @@ class FSAuxCELoss_with_exit(nn.Module):
         )
         return 0.5*loss_s1+0.5*loss_s2
 
+class FSAuxCELossMultiExit(nn.Module):
+    def __init__(self, configer=None):
+        super(FSAuxCELossMultiExit, self).__init__()
+        self.configer = configer
+        self.ce_loss = FSCELoss(self.configer)
+
+    def forward(self, inputs, targets, **kwargs):
+        loss = [0]*len(inputs)
+        for exit in range(len(inputs)):
+            aux_out, seg_out = inputs[exit]
+            seg_loss = self.ce_loss(seg_out, targets)
+            aux_loss = self.ce_loss(aux_out, targets)
+            loss[exit] = self.configer.get("network", "loss_weights")["seg_loss"] * seg_loss
+            loss[exit] = (
+                loss[exit] + self.configer.get("network", "loss_weights")["aux_loss"] * aux_loss
+            )
+        return sum(loss)/len(inputs)
 
 class FSAuxRMILoss(nn.Module):
     def __init__(self, configer=None):

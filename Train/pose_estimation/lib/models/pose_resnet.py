@@ -631,12 +631,12 @@ class PoseResNetwthMultiExit(nn.Module):
         self.exit_list = exit_list
         for i in range(len(exit_list)-1):
             self.ori_backbone.append(get_pose_net_with_only_exit(cfg, is_train=True, start_point = self.exit_list[i]))
-            state_dict = torch.load('/home/slzhang/projects/ETBA/Train/pose_estimation/checkpoints/split_point_{}/model_best.pth'.format(self.exit_list[i]))
-            new_dict = OrderedDict()
+            # state_dict = torch.load('/home/slzhang/projects/ETBA/Train/pose_estimation/checkpoints/split_point_{}/model_best.pth'.format(self.exit_list[i]))
+            # new_dict = OrderedDict()
 
-            for k,v in self.ori_backbone[i].state_dict().items():
-                new_dict[k] = state_dict['module.'+k]
-            self.ori_backbone[i].load_state_dict(new_dict, strict=True)
+            # for k,v in self.ori_backbone[i].state_dict().items():
+            #     new_dict[k] = state_dict['module.'+k]
+            # self.ori_backbone[i].load_state_dict(new_dict, strict=True)
 
         self.ori_backbone.append(get_pose_net_with_only_exit(cfg, is_train=True, start_point = 33))
         net_wth_finalhead = torch.load('/home/slzhang/projects/ETBA/Train/pose_estimation/checkpoints/pose_resnet_101_384x384.pth.tar')
@@ -678,36 +678,18 @@ class PoseResNetwthMultiExit(nn.Module):
             for k,v in self.ori_backbone[i].named_parameters():
                 v.requires_grad=True
 
-        # self.backbone_s2 = backbone_s2(start_point=start_point, end_point=start_point)
-        # for i in range(len(exit_list)):
-            # for item in list(self.backbone[i].children())[:-1]:
-            #     print(item)
-            # flatt_model = get_children(nn.Sequential(*list(self.backbone[i].children())[:-1]))
-            # print(len(flatt_model))
-            # for item in flatt_model:
-            #     print(item)
-            # num = 0
-            # for k,v in self.backbone[i].named_parameters():
-            #     num = num+1
-            #     print(k)
-            # print(num)
-            # if i != 0:
-            #     self.backbone[i] = nn.Sequential(*(list(self.backbone[i].children())[7:]))
+        self.exit = nn.ModuleList()
+        self.deconv_layers = nn.ModuleList()
+        self.final_layer = nn.ModuleList()
 
-        # self.inplanes = 2048
-        # self.deconv_layers = self._make_deconv_layer(
-        #     extra.NUM_DECONV_LAYERS,
-        #     extra.NUM_DECONV_FILTERS,
-        #     extra.NUM_DECONV_KERNELS,
-        # )
+        for i in range(len(exit_list)):
+            self.exit.append(self.ori_backbone[i].backbone_s1.exit)
+            self.deconv_layers.append(self.ori_backbone[i].deconv_layers)
+            self.final_layer.append(self.ori_backbone[i].final_layer)
+        
+        print(self.exit_list)
+        del(self.ori_backbone)
 
-        # self.final_layer = nn.Conv2d(
-        #     in_channels=extra.NUM_DECONV_FILTERS[-1],
-        #     out_channels=cfg.MODEL.NUM_JOINTS,
-        #     kernel_size=extra.FINAL_CONV_KERNEL,
-        #     stride=1,
-        #     padding=1 if extra.FINAL_CONV_KERNEL == 3 else 0
-        # )
 
     def _get_deconv_cfg(self, deconv_kernel, index):
         if deconv_kernel == 4:
@@ -753,9 +735,9 @@ class PoseResNetwthMultiExit(nn.Module):
         output = []
         for i in range(len(self.exit_list)):
             x = self.backbone[i](x)
-            x_exit = self.ori_backbone[i].backbone_s1.exit(x)
-            x_exit = self.ori_backbone[i].deconv_layers(x_exit)
-            x_exit = self.ori_backbone[i].final_layer(x_exit)
+            x_exit = self.exit[i](x)
+            x_exit = self.deconv_layers[i](x_exit)
+            x_exit = self.final_layer[i](x_exit)
             output.append(x_exit)
 
         return output

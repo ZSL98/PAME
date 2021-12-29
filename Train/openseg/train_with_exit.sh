@@ -21,31 +21,49 @@ PRETRAINED_MODEL="./pretrained_model/resnet101-imagenet.pth"
 
 MAX_ITERS=40000
 BACKBONE="resnet101_with_only_exit"
-MODEL_NAME="spatial_ocrnet_with_only_exit"
-LOSS_TYPE="fs_auxce_loss"
+MODEL_NAME="spatial_ocrnet_with_multi_exit"
+LOSS_TYPE="fs_auxce_loss_with_multi_exit"
 
 
 # TODO: WARNING!!!!!!!! change checkpoints_dir in the json file
 
 
-for i in 10 13 16
-do
-    # TODO: log results
-    python -u main.py --configs ${CONFIGS} \
-                       --drop_last y \
-                       --phase etrain \
-                       --gathered n \
-                       --loss_balance y \
-                       --log_to_file n \
-                       --backbone ${BACKBONE} \
-                       --model_name ${MODEL_NAME} \
-                       --gpu 0 \
-                       --data_dir ${DATA_DIR} \
-                       --loss_type ${LOSS_TYPE} \
-                       --max_iters ${MAX_ITERS} \
-                       --checkpoints_name ${CHECKPOINTS_NAME} \
-                       --pretrained ${PRETRAINED_MODEL} \
-                       --distributed \
-                       --split_point $i \
-                       2>&1 | tee ${LOG_FILE}
-done
+python -u main.py --configs ${CONFIGS} \
+                    --drop_last y \
+                    --phase etrain \
+                    --gathered n \
+                    --loss_balance y \
+                    --log_to_file n \
+                    --backbone ${BACKBONE} \
+                    --model_name ${MODEL_NAME} \
+                    --gpu 0 \
+                    --data_dir ${DATA_DIR} \
+                    --loss_type ${LOSS_TYPE} \
+                    --max_iters ${MAX_ITERS} \
+                    --checkpoints_name ${CHECKPOINTS_NAME} \
+                    --pretrained ${PRETRAINED_MODEL} \
+                    --distributed \
+                    --split_point 777 \
+                    2>&1 | tee ${LOG_FILE}
+
+# for i in 10 13
+# do
+#     # TODO: log results
+#     python -u main.py --configs ${CONFIGS} \
+#                        --drop_last y \
+#                        --phase etrain \
+#                        --gathered n \
+#                        --loss_balance y \
+#                        --log_to_file n \
+#                        --backbone ${BACKBONE} \
+#                        --model_name ${MODEL_NAME} \
+#                        --gpu 0 \
+#                        --data_dir ${DATA_DIR} \
+#                        --loss_type ${LOSS_TYPE} \
+#                        --max_iters ${MAX_ITERS} \
+#                        --checkpoints_name ${CHECKPOINTS_NAME} \
+#                        --pretrained ${PRETRAINED_MODEL} \
+#                        --distributed \
+#                        --split_point $i \
+#                        2>&1 | tee ${LOG_FILE}
+# done

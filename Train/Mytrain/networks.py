@@ -1,8 +1,11 @@
 import math
+import copy
+from collections import OrderedDict
 
 import torch
 from torch import Tensor
 import torch.nn as nn
+import torchvision.models as models
 from typing import Type, Any, Callable, Union, List, Optional
 
 
@@ -652,11 +655,11 @@ class partial_resnet(nn.Module):
         self.pre_layer4 = self._make_layer(block, 512, self.pre_layer[3], stride=2,
                                        dilate=replace_stride_with_dilation[2])
 
-        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         # self.fc = nn.Linear(512 * block.expansion, num_classes)
         # self.conv1x1_exit = conv1x1(256, 512)
         # self.bottleblock = Bottleneck(256, 64)
-
+        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
+        self.fc = nn.Linear(512 * Bottleneck.expansion, num_classes)
 
         if simple_exit:
             if self.pre_layer[1] == 0:
@@ -670,7 +673,6 @@ class partial_resnet(nn.Module):
                 self.fc = nn.Linear(256 * Bottleneck.expansion, num_classes)
             else:
                 self.exit = self._make_simple_exit(512)
-                self.fc = nn.Linear(512 * Bottleneck.expansion, num_classes)
         else:
             if self.pre_layer[1] == 0:
                 self.exit = self._make_complex_exit(1, stride=2)
@@ -680,25 +682,8 @@ class partial_resnet(nn.Module):
                 self.exit = self._make_complex_exit(3, stride=2)
             else:
                 self.exit = self._make_complex_exit(4, stride=2)
-            self.fc = nn.Linear(512 * Bottleneck.expansion, num_classes)
 
-
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
-            elif isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
-                nn.init.constant_(m.weight, 1)
-                nn.init.constant_(m.bias, 0)
-
-        # Zero-initialize the last BN in each residual branch,
-        # so that the residual branch starts with zeros, and each residual block behaves like an identity.
-        # This improves the model by 0.2~0.3% according to https://arxiv.org/abs/1706.02677
-        if zero_init_residual:
-            for m in self.modules():
-                if isinstance(m, Bottleneck):
-                    nn.init.constant_(m.bn3.weight, 0)  # type: ignore[arg-type]
-                elif isinstance(m, BasicBlock):
-                    nn.init.constant_(m.bn2.weight, 0)  # type: ignore[arg-type]
+        self.init_weights()
 
     def _make_complex_exit(self, layer: int, stride: int = 1) -> nn.Sequential:
         layers = []
@@ -814,17 +799,109 @@ class partial_resnet(nn.Module):
         x_exit = torch.flatten(x_exit, 1)
         x_exit = self.fc(x_exit)
 
-        # backbone continue
-        # x_c = self.post_layer1(x_fork)
-        # x_c = self.post_layer2(x_c)
-        # x_c = self.post_layer3(x_c)
-        # x_c = self.post_layer4(x_c)
-
-        # x_c = self.avgpool(x_c)
-        # x_c = torch.flatten(x_c, 1)
-        # x_c = self.fc(x_c)
-
         return x_exit
 
     def forward(self, x: Tensor) -> Tensor:
         return self._forward_impl(x)
+
+    def init_weights(self):
+        model_pretrained = models.resnet101(pretrained=True)
+
+        dict_trained = model_pretrained.state_dict().copy()
+        dict_new = OrderedDict()
+
+        for k,v in self.state_dict().items():
+            if 'num_batches_tracked' not in k:
+                if 'pre' in k:
+                    dict_new[k] = dict_trained[k[4:]]
+                elif 'exit' in k:
+                    if len(self.exit) == 1:
+                        dict_new[k] = dict_trained['layer4.0.'+k[7:]]
+                    elif len(self.exit) == 2:
+                        if 'exit.0' in k:
+                            dict_new[k] = dict_trained['layer3.0.'+k[7:]]
+                        elif 'exit.1' in k:
+                            dict_new[k] = dict_trained['layer4.0.'+k[7:]]
+                    elif len(self.exit) == 3:
+                        if 'exit.0' in k:
+                            dict_new[k] = dict_trained['layer2.0.'+k[7:]]
+                        elif 'exit.1' in k:
+                            dict_new[k] = dict_trained['layer3.0.'+k[7:]]
+                        elif 'exit.2' in k:
+                            dict_new[k] = dict_trained['layer4.0.'+k[7:]]
+                else:
+                    dict_new[k] = dict_trained[k]
+
+        # for k,v in self.named_parameters():
+        #     if 'exit' not in k and 'fc' not in k:
+        #         v.requires_grad=False
+        #     else:
+        #         v.requires_grad=True
+        #    
+        self.load_state_dict(dict_new)
+
+
+class ResNetwthMultiExit(nn.Module):
+    def __init__(self, exit_list, **kwargs):
+        super(ResNetwthMultiExit, self).__init__()
+        self.ori_backbone = nn.ModuleList()
+        self.backbone = nn.ModuleList()
+        self.exit_list = exit_list
+        for i in range(len(exit_list)-1):
+            self.ori_backbone.append(partial_resnet(start_point=self.exit_list[i], end_point=self.exit_list[i], simple_exit=False))
+            # state_dict = torch.load('/home/slzhang/projects/ETBA/Train/pose_estimation/checkpoints/split_point_{}/model_best.pth'.format(self.exit_list[i]))
+            # new_dict = OrderedDict()
+
+            # for k,v in self.ori_backbone[i].state_dict().items():
+            #     new_dict[k] = state_dict['module.'+k]
+            # self.ori_backbone[i].load_state_dict(new_dict, strict=True)
+
+        self.ori_backbone.append(partial_resnet(start_point=33, end_point=33, simple_exit=False))
+        ori_backbone_copy = copy.deepcopy(self.ori_backbone)
+
+        for i in range(len(exit_list)):
+            if i == 0:
+                flatt_model = nn.Sequential(*list(ori_backbone_copy[i].children())[:-3])
+                self.backbone.append(flatt_model)
+            else:
+                print('-------------------')
+                backbone = nn.Sequential()
+                last_bottleneck_num = 0
+                for layer in ori_backbone_copy[i-1].named_modules():
+                    if isinstance(layer[1], Bottleneck) and 'exit' not in layer[0]:
+                        last_bottleneck_num = last_bottleneck_num + 1
+
+                cnt = 0
+                for layer in ori_backbone_copy[i].named_modules():
+                    if isinstance(layer[1], Bottleneck) and 'exit' not in layer[0]:
+                        cnt = cnt + 1
+                        if cnt > last_bottleneck_num:
+                            backbone.add_module(layer[0].replace('.',' '), layer[1])
+
+                self.backbone.append(backbone)
+            for k,v in self.backbone[i].named_parameters():
+                v.requires_grad=True
+            for k,v in self.ori_backbone[i].named_parameters():
+                v.requires_grad=True
+
+        self.exit = nn.ModuleList()
+        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
+        self.fc = nn.ModuleList()
+
+        for i in range(len(exit_list)):
+            self.exit.append(self.ori_backbone[i].backbone_s1.exit)
+            self.fc.append(self.ori_backbone[i].fc)
+        
+        del(self.ori_backbone)
+
+    def forward(self, x):
+        output = []
+        for i in range(len(self.exit_list)):
+            x = self.backbone[i](x)
+            x_exit = self.exit[i](x)
+            x_exit = self.avgpool(x_exit)
+            x_exit = torch.flatten(x_exit, 1)
+            x_exit = self.fc[i](x_exit)
+            output.append(x_exit)
+
+        return output

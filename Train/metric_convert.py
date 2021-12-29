@@ -5,6 +5,7 @@ import sys
 import csv
 import json
 import time
+import wandb
 import logging
 import numpy as np
 import pandas as pd
@@ -26,7 +27,7 @@ import matplotlib.pyplot as plt
 # resnet_s1 includes post_layers while partial_resnet does not
 # resnet_s1 has dual-heads
 import torchvision.models as models
-from Mytrain.networks import resnet_s1, partial_resnet
+from Mytrain.networks import resnet_s1, partial_resnet, ResNetwthMultiExit
 import torchvision.datasets as torchvision_datasets
 
 
@@ -51,7 +52,7 @@ from pose_estimation.lib.core.config import update_config, config, get_model_nam
 from pose_estimation.lib.core.function import validate_exit
 from pose_estimation.lib.models import pose_resnet
 from pose_estimation.lib.utils.utils import create_logger
-from pose_estimation.lib.core.loss import DistillationBasedLoss
+from pose_estimation.lib.core.loss import DistillationBasedLoss, JointsMSELoss
 from pose_estimation.lib import dataset
 from pose_estimation.lib.utils.transforms import flip_back
 from pose_estimation.lib.core.evaluate import accuracy
@@ -113,12 +114,19 @@ logger = logging.getLogger(__name__)
 # so I simply use net_wth_eehead and net_wth_finalhead to convert metrics.
 
 class convert_resnet:
-    def __init__(self, split_point, batch_size, last_exit) -> None:
+    def __init__(self, split_point, batch_size, last_exit, metric_thres, dataset_used, final_profile=False) -> None:
         super().__init__()
         self.split_point = split_point
         self.p_thres = 0.75
         self.last_exit = last_exit
         self.batch_size = batch_size
+        self.metric_thres = metric_thres
+        self.dataset_used = dataset_used
+        self.final_profile = final_profile
+
+    # def load_complete_resnet(self):
+    #     state_dict = torch.load("/home/slzhang/projects/DeepLearningExamples/PyTorch/Classification/ConvNets/checkpoints/finetune/checkpoint.pth.tar")
+    #     model = ResNetwthMultiExit(exit_list=[1, 4, 7, 10, 13, 16, 19, 22, 25, 28, 31, 33])
         
     def load_resnet(self):
         net_wth_finalhead = models.resnet101(pretrained=True)
@@ -134,7 +142,12 @@ class convert_resnet:
         return net_wth_eehead, net_wth_finalhead
 
     def eval_resnet(self, net_wth_eehead, net_wth_finalhead):
-        valdir = '/home/slzhang/projects/Shallow-Deep-Networks-backup/data/imagenet/ILSVRC/Data/CLS-LOC/val'
+        if self.dataset_used == 'imagenet':
+            valdir = '/home/slzhang/projects/Shallow-Deep-Networks-backup/data/imagenet/ILSVRC/Data/CLS-LOC/val'
+        elif self.dataset_used == 'imagenette':
+            valdir = '/home/slzhang/projects/Shallow-Deep-Networks-backup/data/imagenette2/val'
+        elif self.dataset_used == 'imagewoof':
+            valdir = '/home/slzhang/projects/Shallow-Deep-Networks-backup/data/imagewoof2/val'
         normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                         std=[0.229, 0.224, 0.225])
         val_loader = torch.utils.data.DataLoader(
@@ -180,10 +193,18 @@ class convert_resnet:
             if self.last_exit == None:
                 last_moveon_dict = dict()
             else:
-                with open('./moveon_dict/resnet_exit_e{}_b{}.json'.format(self.last_exit, self.batch_size), 'rb') as f:
+                with open('./moveon_dict/resnet_exit_e{}_b{}_t{}.json'.format(self.last_exit, self.batch_size, self.metric_thres), 'rb') as f:
                     last_moveon_dict = json.load(f)
 
             for i, (images, target) in enumerate(val_loader):
+                imagenette_map = [0, 217, 482, 491, 497, 566, 569, 571, 574, 701]
+                imagewoof_map = [155, 159, 162, 167, 182, 193, 207, 229, 258, 273]
+                if self.dataset_used == 'imagenette':
+                    for idx in range(len(target)):
+                        target[idx] = imagenette_map[target[idx]]
+                elif self.dataset_used == 'imagewoof':
+                    for idx in range(len(target)):
+                        target[idx] = imagewoof_map[target[idx]]
 
                 if self.last_exit == None:
                     last_moveon_dict[str(i)] = [1]*len(target)
@@ -238,15 +259,15 @@ class convert_resnet:
             hist_data_numpy = np.array(self.hist_data)
 
             if self.last_exit == None:
-                with open('./moveon_dict/resnet_exit_e{}_b{}.json'.format(self.split_point, self.batch_size), "w") as f:
+                with open('./moveon_dict/resnet/{}/resnet_exit_e{}_b{}_t{}.json'.format(self.dataset_used, self.split_point, self.batch_size, self.metric_thres), "w") as f:
                     json.dump(moveon_dict, f)
-                plt.savefig('./moveon_dict/resnet_hist_data_e{}_b{}.png'.format(self.split_point, self.batch_size))
-                np.save('./moveon_dict/resnet_hist_data_e{}_b{}.npy'.format(self.split_point, self.batch_size), hist_data_numpy)
+                # plt.savefig('./moveon_dict/resnet/{}/resnet_hist_data_e{}_b{}.png'.format(self.dataset_used, self.split_point, self.batch_size))
+                # np.save('./moveon_dict/resnet/{}/resnet_hist_data_e{}_b{}.npy'.format(self.dataset_used, self.split_point, self.batch_size), hist_data_numpy)
             else:
-                with open('./moveon_dict/resnet_exit_e{}_l{}_b{}.json'.format(self.split_point, self.last_exit, self.batch_size), "w") as f:
+                with open('./moveon_dict/resnet/{}/resnet_exit_e{}_l{}_b{}_t{}.json'.format(self.dataset_used, self.split_point, self.last_exit, self.batch_size, self.metric_thres), "w") as f:
                     json.dump(moveon_dict, f)
-                plt.savefig('./moveon_dict/resnet_hist_data_e{}_l{}_b{}.png'.format(self.split_point, self.last_exit, self.batch_size))
-                np.save('./moveon_dict/resnet_hist_data_e{}_l{}_b{}.npy'.format(self.split_point, self.last_exit, self.batch_size), hist_data_numpy)
+                # plt.savefig('./moveon_dict/resnet/{}/resnet_hist_data_e{}_l{}_b{}.png'.format(self.dataset_used, self.split_point, self.last_exit, self.batch_size))
+                # np.save('./moveon_dict/resnet/{}/resnet_hist_data_e{}_l{}_b{}.npy'.format(self.dataset_used, self.split_point, self.last_exit, self.batch_size), hist_data_numpy)
 
             plt.close()
             print(' * Acc@1 {top1.avg:.3f} Acc@5 {top5.avg:.3f}'
@@ -313,13 +334,37 @@ class convert_resnet:
             return res
 
 class convert_posenet:
-    def __init__(self, split_point, batch_size, last_exit) -> None:
+    def __init__(self, split_point, batch_size, last_exit, metric_thres, final_profile=True) -> None:
         super().__init__()
         self.split_point = split_point
-        self.p_thres = 0.75
-        self.n_thres = 30
+        self.p_thres = 0.7
+        self.n_thres = 85
         self.last_exit = last_exit
         self.batch_size = batch_size
+        self.metric_thres = metric_thres
+        self.final_profile = final_profile
+
+    def load_final_posenet(self):
+        final_model = torch.load("/home/slzhang/projects/ETBA/Train/pose_estimation/checkpoints/finetuned/model_best.pth")
+        cfg = "/home/slzhang/projects/ETBA/Train/pose_estimation/experiments/mpii/resnet101/384x384_d256x3_adam_lr1e-3.yaml"
+        update_config(cfg)
+
+        # cudnn related setting
+        cudnn.benchmark = config.CUDNN.BENCHMARK
+        torch.backends.cudnn.deterministic = config.CUDNN.DETERMINISTIC
+        torch.backends.cudnn.enabled = config.CUDNN.ENABLED
+
+        net_wth_multi_heads = eval(config.MODEL.NAME+'.get_pose_net_with_multi_exit')(
+            config, is_train=True, exit_list=[1,4,7,10,13,16,19,22,25,28,31,33]
+        )
+
+        dict_multihead = OrderedDict()
+        for k,v in net_wth_multi_heads.state_dict().items():
+            dict_multihead[k] = final_model['module.'+k]
+
+        net_wth_multi_heads.load_state_dict(dict_multihead)
+        return net_wth_multi_heads
+
 
     def load_posenet(self):
         net_wth_finalhead = torch.load("/home/slzhang/projects/ETBA/Train/pose_estimation/checkpoints/pose_resnet_101_384x384.pth.tar")
@@ -364,7 +409,10 @@ class convert_posenet:
         return net_wth_dualheads
 
     def eval_posenet(self):
-        self.net = self.load_posenet()
+        if not self.final_profile:
+            self.net = self.load_posenet()
+        else:
+            self.net = self.load_final_posenet()
         self.net = self.net.cuda()
         self.net.eval()
 
@@ -394,7 +442,7 @@ class convert_posenet:
             pin_memory=True
         )
 
-        self.criterion = DistillationBasedLoss(C=0.5, maxprob = 0.5,
+        self.criterion = JointsMSELoss(
             use_target_weight=config.LOSS.USE_TARGET_WEIGHT
         ).cuda()
 
@@ -428,7 +476,7 @@ class convert_posenet:
             if self.last_exit == None:
                 last_moveon_dict = dict()
             else:
-                with open('./moveon_dict/posenet_exit_e{}_b{}.json'.format(self.last_exit, self.batch_size), 'rb') as f:
+                with open('./moveon_dict/posenet_exit_e{}_b{}_t{}.json'.format(self.last_exit, self.batch_size, self.metric_thres), 'rb') as f:
                     last_moveon_dict = json.load(f)
 
             for i, (input, target, target_weight, meta) in enumerate(self.valid_loader):
@@ -437,7 +485,13 @@ class convert_posenet:
                     last_moveon_dict[str(i)] = [1]*len(target)
 
                 moveon_dict[i] = []
-                output, exit_output = self.net(input)
+                # Shit......why not compatible
+                if not self.final_profile:
+                    output, exit_output = self.net(input)
+                else:
+                    output = self.net(input)
+                    exit_output = output[int(self.split_point/3)]
+                    output = output[-1]
                 if config.TEST.FLIP_TEST:
                     # this part is ugly, because pytorch has not supported negative index
                     # input_flipped = model(input[:, :, :, ::-1])
@@ -467,7 +521,7 @@ class convert_posenet:
 
                 pixel_confidence = self.p_thres
                 num_threshold = self.n_thres
-                for j in range(output.shape[0]):
+                for j in range(len(output)):
                     if last_moveon_dict[str(i)][j] == 1:
                         if len(exit_output[j][exit_output[j] > pixel_confidence]) > num_threshold:
                             moveon_dict[i].append(0)
@@ -498,7 +552,7 @@ class convert_posenet:
                 #         moveon_ratio.update(1, 1)
                 #         exit_output[j] = output[j]                        
 
-                loss = self.criterion(output, exit_output, target, target_weight)
+                loss = self.criterion(exit_output, target, target_weight)
 
                 num_images = input.size(0)
                 # measure accuracy and record loss
@@ -558,16 +612,23 @@ class convert_posenet:
             cnts = plt.hist(hist_data, bins=16, range=(0,1))
             print(cnts[0])
 
-            if self.last_exit == None:
-                with open('./moveon_dict/posenet_exit_e{}_b{}.json'.format(self.split_point, self.batch_size), "w") as f:
-                    json.dump(moveon_dict, f)
-                plt.savefig('./moveon_dict/posenet_hist_data_e{}_b{}.png'.format(self.split_point, self.batch_size))
+            if not self.final_profile:
+                if self.last_exit == None:
+                    with open('./moveon_dict/posenet_exit_e{}_b{}_t{}.json'.format(self.split_point, self.batch_size, self.metric_thres), "w") as f:
+                        json.dump(moveon_dict, f)
+                    # plt.savefig('./moveon_dict/posenet_hist_data_e{}_b{}.png'.format(self.split_point, self.batch_size))
+                else:
+                    with open('./moveon_dict/posenet_exit_e{}_l{}_b{}_t{}.json'.format(self.split_point, self.last_exit, self.batch_size, self.metric_thres), "w") as f:
+                        json.dump(moveon_dict, f)
+                    # plt.savefig('./moveon_dict/posenet_hist_data_e{}_l{}_b{}.png'.format(self.split_point, self.last_exit, self.batch_size))
+                plt.close()
             else:
-                with open('./moveon_dict/posenet_exit_e{}_l{}_b{}.json'.format(self.split_point, self.last_exit, self.batch_size), "w") as f:
-                    json.dump(moveon_dict, f)
-                plt.savefig('./moveon_dict/posenet_hist_data_e{}_l{}_b{}.png'.format(self.split_point, self.last_exit, self.batch_size))
-
-            plt.close()
+                if self.last_exit == None:
+                    with open('./final_moveon_dict/posenet_exit_e{}_b{}_t{}.json'.format(self.split_point, self.batch_size, self.metric_thres), "w") as f:
+                        json.dump(moveon_dict, f)
+                else:
+                    with open('./final_moveon_dict/posenet_exit_e{}_l{}_b{}_t{}.json'.format(self.split_point, self.last_exit, self.batch_size, self.metric_thres), "w") as f:
+                        json.dump(moveon_dict, f)            
 
             # name_values, perf_indicator = self.valid_dataset.evaluate(
             #     config, all_preds, output_dir, all_boxes, image_path,
@@ -584,12 +645,13 @@ class convert_posenet:
 
 
 class convert_openseg:
-    def __init__(self, split_point, batch_size, last_exit) -> None:
+    def __init__(self, split_point, batch_size, metric_thres, last_exit) -> None:
         super().__init__()
         self.split_point = split_point
         self.p_thres = 0.75
         self.n_thres = 30
         self.last_exit = last_exit
+        self.metric_thres = metric_thres
         self.batch_size = batch_size
 
     def load_openseg(self):
@@ -601,7 +663,7 @@ class convert_openseg:
 
         config = Configer(configs="/home/slzhang/projects/ETBA/Train/openseg/configs/cityscapes/R_101_D_8_with_exit.json")
         config.update(["network", "split_point"], split_point)
-        net_wth_eehead = torch.load("/home/slzhang/projects/ETBA/Train/openseg/checkpoints/cityscapes_3000_iters/ocrnet_resnet101_s"+str(split_point)+"_latest.pth")
+        net_wth_eehead = torch.load("/home/slzhang/projects/ETBA/Train/openseg/checkpoints/cityscapes_metric_controlled/split_point_{}/ocrnet_resnet101_s{}_max_performance.pth".format(split_point, split_point))
         # for k,v in net_wth_eehead['state_dict'].items():
         #     print(k)
 
@@ -672,7 +734,7 @@ class convert_openseg:
         if self.last_exit == None:
             last_moveon_dict = dict()
         else:
-            with open('./moveon_dict/openseg_exit_e{}_b{}.json'.format(self.last_exit, self.batch_size), 'rb') as f:
+            with open('./moveon_dict/openseg_exit_e{}_b{}_t{}.json'.format(self.last_exit, self.batch_size, self.metric_thres), 'rb') as f:
                 last_moveon_dict = json.load(f)
 
         for i, data_dict in enumerate(val_loader):
@@ -726,13 +788,13 @@ class convert_openseg:
         print(cnts[0])
 
         if self.last_exit == None:
-            with open('./moveon_dict/openseg_exit_e{}_b{}.json'.format(self.split_point, self.batch_size), "w") as f:
+            with open('./moveon_dict/openseg_exit_e{}_b{}_t{}.json'.format(self.split_point, self.batch_size, self.metric_thres), "w") as f:
                 json.dump(moveon_dict, f)
-            plt.savefig('./moveon_dict/openseg_hist_data_e{}_b{}.png'.format(self.split_point, self.batch_size))
+            # plt.savefig('./moveon_dict/openseg_hist_data_e{}_b{}.png'.format(self.split_point, self.batch_size))
         else:
-            with open('./moveon_dict/openseg_exit_e{}_l{}_b{}.json'.format(self.split_point, self.last_exit, self.batch_size), "w") as f:
+            with open('./moveon_dict/openseg_exit_e{}_l{}_b{}_t{}.json'.format(self.split_point, self.last_exit, self.batch_size, self.metric_thres), "w") as f:
                 json.dump(moveon_dict, f)
-            plt.savefig('./moveon_dict/openseg_hist_data_e{}_l{}_b{}.png'.format(self.split_point, self.last_exit, self.batch_size))
+            # plt.savefig('./moveon_dict/openseg_hist_data_e{}_l{}_b{}.png'.format(self.split_point, self.last_exit, self.batch_size))
 
         plt.close()
 
@@ -754,7 +816,7 @@ class convert_openseg:
             return output_s2
 
 class convert_bert:
-    def __init__(self, split_point, task_name, batch_size, last_exit) -> None:
+    def __init__(self, split_point, task_name, batch_size, last_exit, metric_thres) -> None:
         super().__init__()
         self.task_name = task_name
         self.last_exit = last_exit
@@ -769,31 +831,43 @@ class convert_bert:
             self.num_labels = 1
 
         self.p_thres = 0.8
+        self.metric_thres = metric_thres
 
     def load_bert(self):
 
-        net_wth_finalhead_dict = torch.load("/home/slzhang/projects/ETBA/Train/bert_train/models/"+self.task_name+'/exit12/pytorch_model.bin')
-        net_wth_eehead_dict = torch.load("/home/slzhang/projects/ETBA/Train/bert_train/models/"+self.task_name+'/exit'+str(self.split_point)+'/pytorch_model.bin')
-        
+        # net_wth_finalhead_dict = torch.load("/home/slzhang/projects/ETBA/Train/bert_train/models/"+self.task_name+'/exit12/pytorch_model.bin')
+        # net_wth_eehead_dict = torch.load("/home/slzhang/projects/ETBA/Train/bert_train/models/"+self.task_name+'/exit'+str(self.split_point)+'/pytorch_model.bin')
+        finetuned_net = torch.load("/home/slzhang/projects/ETBA/Train/bert/tmp/model/glue/{}/debug/seed_42_12-21-15-36/pytorch_model.bin".format(self.task_name))
+
         config = AutoConfig.from_pretrained(
-            'bert-base-cased',
+            'bert-base-uncased',
             num_labels=self.num_labels,
             finetuning_task=self.task_name,
         )
-        net_wth_eehead = BertWithSinglehead.from_pretrained('bert-base-cased', config=config)
+        net_wth_eehead = BertWithSinglehead.from_pretrained('bert-base-uncased', config=config)
         net_wth_eehead.add_exit(self.split_point)
-        net_wth_finalhead = BertWithSinglehead.from_pretrained('bert-base-cased', config=config)
+        net_wth_finalhead = BertWithSinglehead.from_pretrained('bert-base-uncased', config=config)
         net_wth_finalhead.add_exit(12)
 
         dict_eehead = OrderedDict()
         dict_finalhead = OrderedDict()
 
         for k,v in net_wth_eehead.state_dict().items():
-            dict_eehead[k] = net_wth_eehead_dict[k]
+            if 'encoder' in k or 'embeddings' in k:
+                dict_eehead[k] = finetuned_net['bert'+k[7:]]
+            elif 'pooler' in k:
+                dict_eehead[k] = finetuned_net['pooler.'+str(self.split_point-1)+k[14:]]
+            else:
+                dict_eehead[k] = finetuned_net['classifier.'+str(self.split_point-1)+k[13:]]
         net_wth_eehead.load_state_dict(dict_eehead)
 
         for k,v in net_wth_finalhead.state_dict().items():
-            dict_finalhead[k] = net_wth_finalhead_dict[k]
+            if 'encoder' in k or 'embeddings' in k:
+                dict_finalhead[k] = finetuned_net['bert'+k[7:]]
+            elif 'pooler' in k:
+                dict_finalhead[k] = finetuned_net['pooler.11'+k[14:]]
+            else:
+                dict_finalhead[k] = finetuned_net['classifier.11'+k[13:]]
         net_wth_finalhead.load_state_dict(dict_finalhead)
 
         eval_eehead = self.bert_aux(net_wth_eehead)
@@ -1017,7 +1091,7 @@ class convert_bert:
         if self.last_exit == None:
             last_moveon_dict = dict()
         else:
-            with open('./moveon_dict/{}_exit_e{}_b{}.json'.format(self.task_name, self.last_exit, self.batch_size), 'rb') as f:
+            with open('./moveon_dict/bert/{}/{}_exit_e{}_b{}_t{}.json'.format(self.task_name, self.task_name, self.last_exit, self.batch_size, self.metric_thres), 'rb') as f:
                 last_moveon_dict = json.load(f)
 
         for i, (eval_dataset, task) in enumerate(zip(eval_datasets, tasks)):
@@ -1032,17 +1106,17 @@ class convert_bert:
                                  torch.tensor(last_moveon_dict[str(i)], dtype=torch.bool), eval_dataset)
 
             moveon_cnt = sum(moveon_indicator)
-
-            passAcc.update(pass_acc, len(eval_dataset))
-            moveonAcc.update(moveon_acc, len(eval_dataset))
-            moveonRatio.update(moveon_cnt/sum(last_moveon_dict[str(i)]), len(eval_dataset))
-            avgAcc.update(passAcc.val*(1-moveonRatio.val)+moveonAcc.val*moveonRatio.val, len(eval_dataset))
+            last_moveon_cnt = sum(last_moveon_dict[str(i)])
+            passAcc.update(pass_acc, last_moveon_cnt)
+            moveonAcc.update(moveon_acc, last_moveon_cnt)
+            moveonRatio.update(moveon_cnt/last_moveon_cnt, last_moveon_cnt)
+            avgAcc.update(passAcc.val*(1-moveonRatio.val)+moveonAcc.val*moveonRatio.val, last_moveon_cnt)
 
         splited_moveon_indicator = [moveon_indicator[i:i+self.batch_size] for i in range(0,len(moveon_indicator), self.batch_size)]
-        splited_last_moveon_dict = [last_moveon_dict[0][i:i+self.batch_size] for i in range(0,len(last_moveon_dict[0]), self.batch_size)]
-        for i in range(int(len(last_moveon_dict[0])/self.batch_size) + 1):
-            if sum(splited_last_moveon_dict[str(i)]) != 0:
-                splited_moveon_ratio = sum(splited_moveon_indicator[i])/sum(splited_last_moveon_dict[str(i)])
+        splited_last_moveon_dict = [last_moveon_dict['0'][i:i+self.batch_size] for i in range(0,len(last_moveon_dict['0']), self.batch_size)]
+        for i in range(int(len(last_moveon_dict['0'])/self.batch_size) + 1):
+            if sum(splited_last_moveon_dict[i]) != 0:
+                splited_moveon_ratio = sum(splited_moveon_indicator[i])/sum(splited_last_moveon_dict[i])
                 self.hist_data.append(splited_moveon_ratio.item())
             else:
                 self.hist_data.append(0)
@@ -1057,13 +1131,11 @@ class convert_bert:
         print(cnts[0])
 
         if self.last_exit == None:
-            with open('./moveon_dict/{}_exit_e{}_b{}.json'.format(self.task_name, self.split_point, self.batch_size), "w") as f:
+            with open('./moveon_dict/bert/{}/{}_exit_e{}_b{}_t{}.json'.format(self.task_name, self.task_name, self.split_point, self.batch_size, self.metric_thres), "w") as f:
                 json.dump(self.moveon_dict, f)
-            plt.savefig('./moveon_dict/{}_hist_data_e{}_b{}.png'.format(self.task_name, self.split_point, self.batch_size))
         else:
-            with open('./moveon_dict/{}_exit_e{}_l{}_b{}.json'.format(self.task_name, self.split_point, self.last_exit, self.batch_size), "w") as f:
+            with open('./moveon_dict/bert/{}/{}_exit_e{}_l{}_b{}_t{}.json'.format(self.task_name, self.task_name, self.split_point, self.last_exit, self.batch_size, self.metric_thres), "w") as f:
                 json.dump(self.moveon_dict, f)
-            plt.savefig('./moveon_dict/{}_hist_data_e{}_l{}_b{}.png'.format(self.task_name, self.split_point, self.last_exit, self.batch_size))
 
         plt.close()
 
@@ -1081,7 +1153,7 @@ class convert_bert:
 
         pass_indicator = (torch.max(softmax_output, 1)[0] > self.p_thres) & last_moveon_list
         moveon_indicator = (torch.max(softmax_output, 1)[0] <= self.p_thres) & last_moveon_list
-        self.moveon_dict[idx] = moveon_indicator
+        self.moveon_dict[idx] = moveon_indicator.tolist()
         pass_cnt = sum(pass_indicator)
         moveon_cnt = sum(moveon_indicator)
         correct_indicator = (torch.max(softmax_output, 1)[1] == target) & last_moveon_list
@@ -1441,84 +1513,114 @@ class ProgressMeter(object):
         return '[' + fmt + '/' + fmt.format(num_batches) + ']'
 
 
-def grid_search(task_name, split_point, batch_size):
+def grid_search(task_name, split_point, batch_size, init=True, metric_thres=98, last_exit=None, dataset='imagenet'):
     print('Grid searcing...')
     if task_name == 'resnet':
-        print('Grid searcing for resnet...')
-        inst = convert_resnet(split_point=split_point, batch_size=batch_size, last_exit=None)
-        net_wth_eehead, net_wth_finalhead = inst.load_resnet()
 
-        for p_thres in np.arange(0.05, 1.05, 0.1):
-            inst.p_thres = p_thres
-            metric_eehead, metric_finalhead, moveon_ratio, metric_avg = inst.eval_resnet(net_wth_eehead, net_wth_finalhead)
-            print('p_thres: ' + str(p_thres) + '  moveon_ratio: ' + str(moveon_ratio) +'  metric_avg: ' + str(metric_avg))
-            with open('/home/slzhang/projects/ETBA/Train/conversion_results/resnet_results_{}.csv'.format(split_point), 'a+') as f:
-                writer = csv.writer(f)
-                writer.writerow([p_thres, metric_eehead, metric_finalhead, moveon_ratio, metric_avg])
+        if init == True:
+            print('Grid searcing for resnet...')
+            inst = convert_resnet(split_point=split_point, batch_size=batch_size, last_exit=last_exit, dataset_used=dataset)
+            net_wth_eehead, net_wth_finalhead = inst.load_resnet()
 
-        result = pd.read_csv('/home/slzhang/projects/ETBA/Train/conversion_results/resnet_results_{}.csv'.format(split_point), header=None)
-        result_satisfied = result[result.iloc[:,4]> 77.34*0.98]
+            for p_thres in np.arange(0.05, 1.05, 0.1):
+                inst.p_thres = p_thres
+                metric_eehead, metric_finalhead, moveon_ratio, metric_avg = inst.eval_resnet(net_wth_eehead, net_wth_finalhead)
+                wandb.log({'split_point':split_point, 'p_thres':p_thres, 'moveon_ratio':moveon_ratio, 'metric_avg':metric_avg})
+                print('p_thres: ' + str(p_thres) + '  moveon_ratio: ' + str(moveon_ratio) +'  metric_avg: ' + str(metric_avg))
+                with open('/home/slzhang/projects/ETBA/Train/conversion_results/resnet_train{}_{}/resnet_results_{}_{}.csv'.format(dataset, dataset, split_point), 'a+') as f:
+                    writer = csv.writer(f)
+                    writer.writerow([p_thres, metric_eehead, metric_finalhead, moveon_ratio, metric_avg])
+
+        print('Grid searcing has been finished.')
+        result = pd.read_csv('/home/slzhang/projects/ETBA/Train/conversion_results/resnet_train{}_{}/resnet_results_{}_{}.csv'.format(dataset, dataset, split_point), header=None)
+        if dataset == 'imagenet':
+            result_satisfied = result[result.iloc[:,4]> 77.34*metric_thres*0.01]
+        elif dataset == 'imagenette':
+            result_satisfied = result[result.iloc[:,4]> 89.8*metric_thres*0.01]
+        elif dataset == 'imagewoof':
+            result_satisfied = result[result.iloc[:,4]> 88.1*metric_thres*0.01]
         opt_p_thres = result_satisfied[result_satisfied.iloc[:,3] == result_satisfied.iloc[:,3].min()].iloc[:,0]
+
+        if len(opt_p_thres) > 1:
+            return opt_p_thres.iloc[0]
 
         return opt_p_thres.item()
 
     elif task_name == 'posenet':
-        print('Grid searcing for posenet...')
-
-        inst = convert_posenet(split_point=split_point, batch_size=batch_size, last_exit=None)
-        for p_thres in np.arange(0.6, 0.85, 0.05):
-            for n_thres in [5, 10, 15, 20, 30, 50]:
-                inst.p_thres = p_thres
-                inst.n_thres = n_thres
-                acc_pass, acc_moveon, moveon_ratio, metric_avg = inst.eval_posenet()
-                print('p_thres: ' + str(p_thres) + '  n_thres: ' + str(n_thres) + '  moveon_ratio: ' + str(moveon_ratio) +'  metric_avg: ' + str(metric_avg))
-                with open('/home/slzhang/projects/ETBA/Train/conversion_results/posenet_results_{}.csv'.format(split_point), 'a+') as f:
-                    writer = csv.writer(f)
-                    writer.writerow([p_thres, n_thres, acc_pass, acc_moveon, moveon_ratio, metric_avg])
+        if init == True:
+            print('Grid searcing for posenet...')
+            inst = convert_posenet(split_point=split_point, batch_size=batch_size, last_exit=last_exit)
+            for p_thres in np.arange(0.6, 0.85, 0.05):
+                for n_thres in [5, 10, 15, 20, 30, 50]:
+                    inst.p_thres = p_thres
+                    inst.n_thres = n_thres
+                    acc_pass, acc_moveon, moveon_ratio, metric_avg = inst.eval_posenet()
+                    wandb.log({'split_point':split_point, 'p_thres':p_thres, 'n_thres': n_thres, 'moveon_ratio':moveon_ratio, 'metric_avg':metric_avg})
+                    print('p_thres: ' + str(p_thres) + '  n_thres: ' + str(n_thres) + '  moveon_ratio: ' + str(moveon_ratio) +'  metric_avg: ' + str(metric_avg))
+                    with open('/home/slzhang/projects/ETBA/Train/conversion_results/posenet_trainall/posenet_results_{}.csv'.format(split_point), 'a+') as f:
+                        writer = csv.writer(f)
+                        writer.writerow([p_thres, n_thres, acc_pass, acc_moveon, moveon_ratio, metric_avg])
         
-        result = pd.read_csv('/home/slzhang/projects/ETBA/Train/conversion_results/posenet_results_{}.csv'.format(split_point), header=None)
-        result_satisfied = result[result.iloc[:,5]>0.8982*0.95]
+        print('Grid searcing has been finished.')
+        result = pd.read_csv('/home/slzhang/projects/ETBA/Train/conversion_results/posenet_trainall/posenet_results_{}.csv'.format(split_point), header=None)
+        result_satisfied = result[result.iloc[:,5]>0.8982*metric_thres*0.01]
         opt_p_thres = result_satisfied[result_satisfied.iloc[:,4] == result_satisfied.iloc[:,4].min()].iloc[:,0]
         opt_n_thres = result_satisfied[result_satisfied.iloc[:,4] == result_satisfied.iloc[:,4].min()].iloc[:,1]
+
+        if len(opt_p_thres) > 1:
+            return opt_p_thres.iloc[0], opt_n_thres.iloc[0]
 
         return opt_p_thres.item(), opt_n_thres.item()
 
     elif task_name == 'openseg':
-        print('Grid searcing for openseg...')
-
-        inst = convert_openseg(split_point=split_point, batch_size=batch_size, last_exit=None)
-        net = inst.load_openseg()
-        for p_thres in np.arange(5, 10, 1):
-            for n_thres in [5000000, 500000, 700000, 900000, 1100000]:
-                inst.p_thres = p_thres
-                inst.n_thres = n_thres
-                metric_eehead, metric_finalhead, moveon_ratio, metric_avg = inst.eval_openseg(net)
-                print('p_thres: ' + str(p_thres) + '  n_thres: ' + str(n_thres) + '  moveon_ratio: ' + str(moveon_ratio) +'  metric_avg: ' + str(metric_avg))
-                with open('/home/slzhang/projects/ETBA/Train/conversion_results/openseg_results_{}.csv'.format(split_point), 'a+') as f:
-                    writer = csv.writer(f)
-                    writer.writerow([p_thres, n_thres, metric_eehead, metric_finalhead, moveon_ratio, metric_avg])
-
+        if init == True:
+            print('Grid searcing for openseg...')
+            inst = convert_openseg(split_point=split_point, batch_size=batch_size, last_exit=last_exit)
+            net = inst.load_openseg()
+            for p_thres in np.arange(6, 10, 1):
+                for n_thres in [500000, 700000, 900000, 1100000]:
+                    inst.p_thres = p_thres
+                    inst.n_thres = n_thres
+                    metric_eehead, metric_finalhead, moveon_ratio, metric_avg = inst.eval_openseg(net)
+                    wandb.log({'split_point':split_point, 'p_thres':p_thres, 'n_thres': n_thres, 'moveon_ratio':moveon_ratio, 'metric_avg':metric_avg})
+                    print('p_thres: ' + str(p_thres) + '  n_thres: ' + str(n_thres) + '  moveon_ratio: ' + str(moveon_ratio) +'  metric_avg: ' + str(metric_avg))
+                    with open('/home/slzhang/projects/ETBA/Train/conversion_results/openseg_results_{}.csv'.format(split_point), 'a+') as f:
+                        writer = csv.writer(f)
+                        writer.writerow([p_thres, n_thres, metric_eehead, metric_finalhead, moveon_ratio, metric_avg])
+                
+        print('Grid searcing has been finished.')
         result = pd.read_csv('/home/slzhang/projects/ETBA/Train/conversion_results/openseg_results_{}.csv'.format(split_point), header=None)
-        result_satisfied = result[result.iloc[:,5]>0.77058*0.95]
+        result_satisfied = result[result.iloc[:,5]>0.77058*metric_thres*0.01]
         opt_p_thres = result_satisfied[result_satisfied.iloc[:,4] == result_satisfied.iloc[:,4].min()].iloc[:,0]
         opt_n_thres = result_satisfied[result_satisfied.iloc[:,4] == result_satisfied.iloc[:,4].min()].iloc[:,1]
 
+        if len(opt_p_thres) > 1:
+            return opt_p_thres.iloc[0], opt_n_thres.iloc[0]
+
         return opt_p_thres.item(), opt_n_thres.item()
 
-    elif task_name == 'mrpc':
-        print('Grid searcing for mrpc...')
-        inst = convert_bert(split_point=split_point, task_name=task_name, batch_size=batch_size, last_exit=None)
-        eval_eehead, eval_finalhead = inst.load_bert()
-        for p_thres in np.arange(0, 1.1, 0.1):
-            inst.p_thres = p_thres
-            metric_eehead, metric_finalhead, moveon_ratio, metric_avg = inst.eval_bert(eval_eehead, eval_finalhead)
-            with open('/home/slzhang/projects/ETBA/Train/conversion_results/mrpc_results_{}.csv'.format(split_point), 'a+') as f:
-                writer = csv.writer(f)
-                writer.writerow([p_thres, metric_eehead, metric_finalhead, moveon_ratio, metric_avg])
+    elif task_name in ['cola', 'mnli', 'mrpc', 'qnli', 'qqp', 'rte', 'sst2', 'stsb', 'wnli']:
+        if init == True:
+            print('Grid searcing for {}...'.format(task_name))
+            inst = convert_bert(split_point=split_point, task_name=task_name, batch_size=batch_size, last_exit=last_exit, metric_thres=metric_thres)
+            eval_eehead, eval_finalhead = inst.load_bert()
+            for p_thres in np.arange(0.45, 1.05, 0.05):
+                inst.p_thres = p_thres
+                metric_eehead, metric_finalhead, moveon_ratio, metric_avg = inst.eval_bert(eval_eehead, eval_finalhead)
+                wandb.log({'split_point':split_point, 'p_thres':p_thres, 'moveon_ratio':moveon_ratio, 'metric_avg':metric_avg})
+                with open('/home/slzhang/projects/ETBA/Train/conversion_results/bert_trainall/{}/{}_results_e{}_l{}.csv'.format(\
+                        task_name, task_name, split_point, last_exit if last_exit is not None else '0'), 'a+') as f:
+                    writer = csv.writer(f)
+                    writer.writerow([p_thres, metric_eehead, metric_finalhead, moveon_ratio, metric_avg])
     
-        result = pd.read_csv('/home/slzhang/projects/ETBA/Train/conversion_results/mrpc_results_{}.csv'.format(split_point), header=None)
-        result_satisfied = result[result.iloc[:,4]>82.6-1]
+        print('Grid searcing has been finished.')
+        result = pd.read_csv('/home/slzhang/projects/ETBA/Train/conversion_results/bert_trainall/{}/{}_results_e{}_l{}.csv'.format(\
+                    task_name, task_name, split_point, last_exit if last_exit is not None else '0'), header=None)
+        result_satisfied = result[result.iloc[:,4]>74.72*metric_thres*0.01]
         opt_p_thres = result_satisfied[result_satisfied.iloc[:,3] == result_satisfied.iloc[:,3].min()].iloc[:,0]
+
+        if len(opt_p_thres) > 1:
+            return opt_p_thres.iloc[0]
 
         return opt_p_thres.item()
 
@@ -1531,63 +1633,80 @@ if __name__ == '__main__':
     # inst.eval_resnet(net_wth_eehead, net_wth_finalhead)
     # exit()
 
-    task = 'posenet'
+    task = 'bert'
+    dataset_name = 'mrpc'
     mode = 'test'
+    metric_thres = 98
+    init = True
+    batch_size = 16
+    last_exit = 5
+
+    wandb.init(
+        project="metric_convert", 
+        name=task+'_'+dataset_name,
+        config={
+        "architecture": "resnet101",})
 
     if mode == 'test':
         if task == 'resnet':
             for split_point in [1,4,7,10,13,16,19,22,25,28,31]:
-                batch_size = 128
-                opt_p_thres = grid_search(task, split_point, batch_size)
+                opt_p_thres = grid_search(task, split_point, batch_size, init=init, metric_thres=metric_thres, dataset=dataset_name)
                 # opt_p_thres = 0.75
-                inst = convert_resnet(split_point=split_point, batch_size=batch_size, last_exit=None)
+                inst = convert_resnet(split_point=split_point, batch_size=batch_size, last_exit=last_exit, metric_thres=metric_thres, dataset_used=dataset_name)
                 inst.p_thres = opt_p_thres
-                # with open('/home/slzhang/projects/ETBA/Train/opt_thres_record/resnet.csv', 'a+') as f:
-                #     writer = csv.writer(f)
-                #     writer.writerow([split_point, opt_p_thres])
                 net_wth_eehead, net_wth_finalhead = inst.load_resnet()
-                inst.eval_resnet(net_wth_eehead, net_wth_finalhead)
+                a,b,c,d = inst.eval_resnet(net_wth_eehead, net_wth_finalhead)
+                with open('/home/slzhang/projects/ETBA/Train/opt_thres_record/resnet_{}_trainall.csv'.format(dataset_name), 'a+') as f:
+                    writer = csv.writer(f)
+                    writer.writerow([metric_thres, batch_size, split_point, opt_p_thres, a, b, c, d])
 
         elif task == 'posenet':
             for split_point in [1,4,7,10,13,16,19,22,25,28,31]:
-                batch_size = 32
-                opt_p_thres, opt_n_thres = grid_search(task, split_point, batch_size)
-                inst = convert_posenet(split_point=split_point, batch_size=batch_size, last_exit=None)
-                with open('/home/slzhang/projects/ETBA/Train/opt_thres_record/posenet_metric_controlled.csv', 'a+') as f:
-                    writer = csv.writer(f)
-                    writer.writerow([split_point, opt_p_thres, opt_n_thres])
+                opt_p_thres, opt_n_thres = grid_search(task, split_point, batch_size, init=init, metric_thres=metric_thres)
+                inst = convert_posenet(split_point=split_point, batch_size=batch_size, last_exit=last_exit, metric_thres=metric_thres)
                 inst.p_thres = opt_p_thres
                 inst.n_thres = opt_n_thres
-                inst.eval_posenet()
+                a,b,c,d = inst.eval_posenet()
+                with open('/home/slzhang/projects/ETBA/Train/opt_thres_record/posenet_trainall.csv', 'a+') as f:
+                    writer = csv.writer(f)
+                    writer.writerow([metric_thres, batch_size, split_point, opt_p_thres, opt_n_thres, a, b, c, d])
 
         elif task == 'openseg':
-            for split_point in [13,16,19,22,25,28]:
-                batch_size = 8
-                opt_p_thres, opt_n_thres = grid_search(task, split_point, batch_size)
-                inst = convert_openseg(split_point=split_point, batch_size=batch_size, last_exit=None)
-                with open('/home/slzhang/projects/ETBA/Train/opt_thres_record/openseg_iteration3000.csv', 'a+') as f:
-                    writer = csv.writer(f)
-                    writer.writerow([split_point, opt_p_thres, opt_n_thres])
-                # opt_p_thres = 7
-                # opt_n_thres = 500000
+            for split_point in [10,13,16,19,22,25,28]:
+                opt_p_thres, opt_n_thres = grid_search(task, split_point, batch_size, init=init, metric_thres=metric_thres)
+                inst = convert_openseg(split_point=split_point, batch_size=batch_size, last_exit=last_exit, metric_thres=metric_thres)
                 inst.p_thres = opt_p_thres
                 inst.n_thres = opt_n_thres
                 net = inst.load_openseg()
-                inst.eval_openseg(net)
+                a,b,c,d = inst.eval_openseg(net)
+                with open('/home/slzhang/projects/ETBA/Train/opt_thres_record/openseg_trainsep.csv', 'a+') as f:
+                    writer = csv.writer(f)
+                    writer.writerow([metric_thres, batch_size, split_point, opt_p_thres, opt_n_thres, a, b, c, d])
 
         elif task == 'bert':
-            split_point = 8
-            batch_size = 16
-            opt_p_thres = grid_search('mrpc', split_point, batch_size)
-            inst = convert_bert(split_point=split_point, task_name='mrpc', batch_size=batch_size, last_exit=None)
-            inst.p_thres = opt_p_thres
-            eval_eehead, eval_finalhead = inst.load_bert()
-            inst.eval_bert(eval_eehead, eval_finalhead)
+            for split_point in [1,2,3,4,5,6,7,8,9,10,11]:
+                opt_p_thres = grid_search(dataset_name, split_point, batch_size, init=init, metric_thres=metric_thres, last_exit=last_exit)
+                inst = convert_bert(split_point=split_point, task_name=dataset_name, batch_size=batch_size, last_exit=last_exit, metric_thres=metric_thres)
+                inst.p_thres = opt_p_thres
+                print(inst.p_thres)
+                eval_eehead, eval_finalhead = inst.load_bert()
+                a,b,c,d = inst.eval_bert(eval_eehead, eval_finalhead)
+                with open('/home/slzhang/projects/ETBA/Train/opt_thres_record/{}_trainall.csv'.format(dataset_name), 'a+') as f:
+                    writer = csv.writer(f)
+                    writer.writerow([last_exit if last_exit is not None else 0, metric_thres, batch_size, split_point, opt_p_thres, a, b, c, d])
 
         elif task == 'Wav2Vec2':
             inst = convert_Wav2Vec2(split_point=5)
             inst.load_Wav2Vec2()
-    # TODO: For bert, run "python metric_convert.py --output_dir /home/slzhang/projects/ETBA/Train/bert_train/models/tmp --split_point 5 --model_name_or_path bert-base-cased --task_name mrpc --do_eval
+    # TODO: For bert, run "python metric_convert.py --output_dir /home/slzhang/projects/ETBA/Train/bert_train/models/tmp --split_point 5 --model_name_or_path bert-base-uncased --task_name mrpc --do_eval
+    elif mode == 'final':
+        if task == 'resnet':
+            pass
+        elif task == 'posenet':
+            inst = convert_posenet(split_point=22, batch_size=32, last_exit=None, final_profile=True)
+            acc_pass, acc_moveon, moveon_ratio, metric_avg = inst.eval_posenet()
+
+
 
 
 

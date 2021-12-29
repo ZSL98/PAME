@@ -35,12 +35,12 @@ parser.add_argument('--epochs', default=10, type=int, metavar='N',
 #                     help='split the network from the start point')
 parser.add_argument('--start-epoch', default=0, type=int, metavar='N',
                     help='manual epoch number (useful on restarts)')
-parser.add_argument('-b', '--batch-size', default=512, type=int,
+parser.add_argument('-b', '--batch-size', default=256, type=int,
                     metavar='N',
                     help='mini-batch size (default: 256), this is the total '
                          'batch size of all GPUs on the current node when '
                          'using Data Parallel or Distributed Data Parallel')
-parser.add_argument('--lr', '--learning-rate', default=0.1, type=float,
+parser.add_argument('--lr', '--learning-rate', default=0.01, type=float,
                     metavar='LR', help='initial learning rate', dest='lr')
 parser.add_argument('--momentum', default=0.9, type=float, metavar='M',
                     help='momentum')
@@ -321,7 +321,7 @@ def main_worker(gpu, ngpus_per_node, args):
         is_best = acc1 > best_acc1
         best_acc1 = max(acc1, best_acc1)
 
-        save_dir = './checkpoints/train_10/split_point_{}/'.format(args.split_point)
+        save_dir = './checkpoints/train_metric_controlled/split_point_{}/'.format(args.split_point)
         if not os.path.exists(save_dir):
             os.makedirs(save_dir)
 
@@ -336,7 +336,7 @@ def main_worker(gpu, ngpus_per_node, args):
                 'optimizer' : optimizer.state_dict(),
             }, is_best, save_dir, filename=save_dir+'checkpoint_s{}_latest.pth'.format(args.split_point))
 
-        if epoch%5 == 0:
+        if epoch%1 == 0:
             iter_model_state_file = save_dir+'checkpoint_{}epochs_s{}.pth'.format(epoch, args.split_point)
             torch.save({
                 'epoch': epoch,
@@ -346,9 +346,9 @@ def main_worker(gpu, ngpus_per_node, args):
                 'optimizer' : optimizer.state_dict(),
             }, iter_model_state_file)
 
-        # diff = [metric_record[i+1]-metric_record[i] for i in range(len(metric_record)-1)]
-        # if len([i for i in diff[-3:] if i < 0.25]) == 3:
-        #     exit()
+        diff = [metric_record[i+1]-metric_record[i] for i in range(len(metric_record)-1)]
+        if len([i for i in diff[-3:] if i < 0.2]) == 3:
+            exit()
 
 
 def hook(module, fea_in, fea_out):

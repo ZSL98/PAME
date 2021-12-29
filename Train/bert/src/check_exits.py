@@ -561,7 +561,6 @@ def main():
                     if not i in config.augment_layers:
                         continue
                     predictions = outputs.logits[i].argmax(dim=-1) if not is_regression else outputs.logits[i].squeeze()
-                    print(predictions)
                     metric[i].add_batch(
                         predictions=accelerator.gather(predictions),
                         references=accelerator.gather(batch["labels"]),

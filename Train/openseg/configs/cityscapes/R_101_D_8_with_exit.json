@@ -71,12 +71,13 @@
     },
     "checkpoints": {
       "checkpoints_name": "fs_baseocnet_cityscapes_seg",
-      "checkpoints_dir": "./checkpoints/cityscapes_metric_controlled",
+      "checkpoints_dir": "./checkpoints/cityscapes_finetuned",
       "save_iters": 1000
     },
     "network":{
       "backbone": "resnet101_with_exit",
       "split_point": 13,
+      "exit_list": [10, 13, 16, 19, 22, 25, 28],
       "multi_grid": [1, 1, 1],
       "model_name": "spatial_ocrnet_with_exit",
       "bn_type": "inplace_abn",

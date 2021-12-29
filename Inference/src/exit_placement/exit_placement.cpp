@@ -908,8 +908,8 @@ bool model_generation(std::string model_name, const int start_point, const int e
 
 int main(int argc, char** argv)
 {
-    // int nGpuId = 2;
-    // cudaSetDevice(nGpuId);
+    int nGpuId = 1;
+    cudaSetDevice(nGpuId);
     // int leastPriority;
     // int greatestPriority;
     // cudaDeviceGetStreamPriorityRange (&leastPriority, &greatestPriority );
@@ -931,10 +931,10 @@ int main(int argc, char** argv)
     config_doc.ParseStream(config_fs);
 
     std::ofstream outFile;
-    // Py_Initialize();
+    Py_Initialize();
     int extend_max_block = 1;
     if (config_doc["seperate_or_not"].GetBool()){
-        for (int split_point = config_doc["split_point"].GetUint(); split_point < config_doc["termi_point"].GetUint(); split_point++)
+        for (int split_point = config_doc["split_point"].GetUint(); split_point < config_doc["termi_point"].GetUint(); split_point=split_point+3)
         {
             // Do the pre test to determine the end point of stage1 network
             /*
@@ -976,11 +976,11 @@ int main(int argc, char** argv)
             std::cout << "Opt end_point for start_point " << start_point << " is " << end_point << std::endl;
 
             */
-            // bool model_generated = model_generation(model_name, config_doc["begin_point"].GetUint(), split_point);
-            // if(!model_generated){
-            //     std::cout<<"failed to export models"<<endl;
-            //     return -1;
-            // }
+            bool model_generated = model_generation(model_name, config_doc["begin_point"].GetUint(), split_point);
+            if(!model_generated){
+                std::cout<<"failed to export models"<<endl;
+                return -1;
+            }
             
             // std::vector<float> avg_elapsed_time_s1;
             // std::vector<float> avg_elapsed_time_s2;
@@ -1034,7 +1034,7 @@ int main(int argc, char** argv)
                 //             << std::endl;
             }
             
-            outFile.open("/home/slzhang/projects/ETBA/Inference/src/exit_placement/config_" + model_name + "_" +
+            outFile.open("/home/slzhang/projects/ETBA/Inference/src/exit_placement/config_a100_" + model_name + "_" +
                             to_string(config_doc["bs_s1"].GetUint()) + ".csv", ios::app);
             outFile << 0 << ',' << split_point << ',';
 
@@ -1069,6 +1069,6 @@ int main(int argc, char** argv)
         std::cout << "Average elapsed time of the begin-from-" << config_doc["begin_point"].GetUint() << " model: " 
                     << avg_elapsed_time << std::endl;
     }
-    // Py_Finalize();
+    Py_Finalize();
     return 0;
 }

@@ -60,7 +60,10 @@ class ETrainer(object):
         self.data_loader = DataLoader(configer)
         self.optim_scheduler = OptimScheduler(configer)
         self.data_helper = DataHelper(configer, self)
-        self.evaluator = get_evaluator(configer, self)
+        self.exit_list = self.configer.get("network", "exit_list")
+        self.evaluator_list = []
+        for i in range(len(self.exit_list)):
+            self.evaluator_list.append(get_evaluator(configer, self))
 
         self.seg_net = None
         self.train_loader = None
@@ -226,15 +229,6 @@ class ETrainer(object):
 
             backward_start_time = time.time()
 
-            # backward_loss.backward()
-            # self.optimizer.step()
-            # print(self.seg_net.module.backbone_s1.resinit.conv1.weight)
-            # print(self.seg_net.module.backbone_s1.resinit.bn1.weight)
-            # print(self.seg_net.module.backbone_s1.resinit.bn1.bias)
-            # print(self.seg_net.module.backbone_s1.resinit.bn1.running_mean)
-            # print(self.seg_net.module.backbone_s1.pre_layer3[0]['bn3']['bias'])
-            # print(self.seg_net.module.backbone_s1.pre_layer3.0.bn3.running_mean)
-            # print(self.seg_net.module.head.bias)
             scaler.scale(backward_loss).backward()
             scaler.step(self.optimizer)
             scaler.update()
@@ -302,10 +296,10 @@ class ETrainer(object):
             ):
                 self.__val()
                 print(self.metric_record)
-                diff = [self.metric_record[i+1]-self.metric_record[i] for i in range(len(self.metric_record)-1)]
-                print(diff)
-                if len([i for i in diff[-2:] if i < 0.01]) == 2:
-                    exit()
+                # diff = [self.metric_record[i+1]-self.metric_record[i] for i in range(len(self.metric_record)-1)]
+                # print(diff)
+                # if len([i for i in diff[-2:] if i < 0.01]) == 2:
+                #     exit()
 
         self.configer.plus_one("epoch")
 
@@ -316,7 +310,10 @@ class ETrainer(object):
         self.seg_net.eval()
         self.pixel_loss.eval()
         start_time = time.time()
-        replicas = self.evaluator.prepare_validaton()
+        replicas_list = []
+        for i in range(len(self.exit_list)):
+            replicas_list.append(self.evaluator_list[i].prepare_validaton())
+        replicas = replicas_list[0]
 
         data_loader = self.val_loader if data_loader is None else data_loader
         for j, data_dict in enumerate(data_loader):
@@ -372,17 +369,15 @@ class ETrainer(object):
                         ]
                     outputs_rev = torch.flip(outputs_rev, [3])
                     outputs = (outputs + outputs_rev) / 2.0
-                    self.evaluator.update_score(outputs, data_dict["meta"])
+                    self.evaluator_list[0].update_score(outputs, data_dict["meta"])
 
                 elif self.data_helper.conditions.diverse_size:
                     if is_distributed():
                         outputs = [self.seg_net(inputs[i]) for i in range(len(inputs))]
-                        # print('here1')
                     else:
                         outputs = nn.parallel.parallel_apply(
                             replicas[: len(inputs)], inputs
                         )
-                        # print('here2')
 
                     for i in range(len(outputs)):
                         loss = self.pixel_loss(outputs[i], targets[i].unsqueeze(0))
@@ -390,13 +385,12 @@ class ETrainer(object):
                         outputs_i = outputs[i]
                         if isinstance(outputs_i, torch.Tensor):
                             outputs_i = [outputs_i]
-                        self.evaluator.update_score(
+                        self.evaluator_list[0].update_score(
                             outputs_i, data_dict["meta"][i : i + 1]
                         )
 
                 else:
                     outputs = self.seg_net(*inputs)
-                    # print('here3')
 
                     try:
                         loss = self.pixel_loss(
@@ -410,12 +404,14 @@ class ETrainer(object):
                     if not is_distributed():
                         outputs = self.module_runner.gather(outputs)
                     self.val_losses.update(loss.item(), batch_size)
-                    self.evaluator.update_score(outputs, data_dict["meta"])
+                    for i in range(len(self.exit_list)):
+                        self.evaluator_list[i].update_score(outputs[i], data_dict["meta"])
 
             self.batch_time.update(time.time() - start_time)
             start_time = time.time()
 
-        self.evaluator.update_performance()
+        for i in range(len(self.exit_list)):
+            self.evaluator_list[i].update_performance()
 
         self.configer.update(["val_loss"], self.val_losses.avg)
         self.module_runner.save_net(self.seg_net, save_mode="iters")
@@ -423,7 +419,8 @@ class ETrainer(object):
         cudnn.benchmark = True
 
         # Print the log info & reset the states.
-        self.evaluator.reduce_scores()
+        for i in range(len(self.exit_list)):
+            self.evaluator_list[i].reduce_scores()
         if not is_distributed() or get_rank() == 0:
             Log.info(
                 "Test Time {batch_time.sum:.3f}s, ({batch_time.avg:.3f})\t"
@@ -431,13 +428,15 @@ class ETrainer(object):
                     batch_time=self.batch_time, loss=self.val_losses
                 )
             )
-            metric = self.evaluator.print_scores()
-            wandb.log({'metric':metric})
+            for i in range(len(self.exit_list)):
+                metric = self.evaluator_list[i].print_scores()
+                wandb.log({'metric_e{}'.format(self.exit_list[i]):metric})
             self.metric_record.append(metric)
         
         self.batch_time.reset()
         self.val_losses.reset()
-        self.evaluator.reset()
+        for i in range(len(self.exit_list)):
+            self.evaluator_list[i].reset()
         self.seg_net.train()
         self.pixel_loss.train()
 
