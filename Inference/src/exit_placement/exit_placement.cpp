@@ -572,7 +572,7 @@ std::vector<float> Profiler::execute(const bool separate_or_not, const size_t& n
         int *copy_list;
         int size = (int) batch_size_s1_*sizeof(int);
         cudaMalloc(&copy_list, size);
-        max_reduction_p(exitPtr_device, copy_list, stream_1);
+        max_reduction_r(exitPtr_device, copy_list, stream_1);
 
         int next_batch_size = batch_size_s2_;
         int *fake_copy_list;
@@ -617,7 +617,7 @@ std::vector<float> Profiler::execute(const bool separate_or_not, const size_t& n
 
             exitPtr = buffer_s1.getImmediateBuffer(2);
             exitPtr_device = static_cast<float*>(exitPtr->deviceBuffer.data());
-            max_reduction_p(exitPtr_device, copy_list, stream_1);
+            max_reduction_r(exitPtr_device, copy_list, stream_1);
 
 
             std::shared_ptr<samplesCommon::ManagedBuffer> manBuf_ptr = buffer_s1.getImmediateBuffer(1);
@@ -908,7 +908,7 @@ bool model_generation(std::string model_name, const int start_point, const int e
 
 int main(int argc, char** argv)
 {
-    int nGpuId = 1;
+    int nGpuId = 0;
     cudaSetDevice(nGpuId);
     // int leastPriority;
     // int greatestPriority;
@@ -934,7 +934,7 @@ int main(int argc, char** argv)
     Py_Initialize();
     int extend_max_block = 1;
     if (config_doc["seperate_or_not"].GetBool()){
-        for (int split_point = config_doc["split_point"].GetUint(); split_point < config_doc["termi_point"].GetUint(); split_point++)
+        for (int split_point = config_doc["split_point"].GetUint(); split_point < config_doc["termi_point"].GetUint(); split_point=split_point+3)
         {
             // Do the pre test to determine the end point of stage1 network
             /*
@@ -1034,7 +1034,7 @@ int main(int argc, char** argv)
                 //             << std::endl;
             }
             
-            outFile.open("/home/slzhang/projects/ETBA/Inference/src/exit_placement/config_" + model_name + "_" +
+            outFile.open("/home/slzhang/projects/ETBA/Inference/src/exit_placement/config_v100_" + model_name + "_" +
                             to_string(config_doc["bs_s1"].GetUint()) + ".csv", ios::app);
             outFile << 0 << ',' << split_point << ',';
 

@@ -75,7 +75,7 @@ class ModuleHelper(object):
 
     @staticmethod
     def BatchNorm2d(bn_type='torch', ret_cls=False):
-        # return nn.BatchNorm2d
+        return nn.BatchNorm2d
         from inplace_abn import InPlaceABNSync
         return functools.partial(InPlaceABNSync, activation='identity')
         if bn_type == 'torchbn':

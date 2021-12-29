@@ -92,7 +92,7 @@ class construct_net(object):
             return model_CTC
 
         elif self.backbone == 'openseg':
-            return SpatialOCRNet_s1(self.start_point)
+            return SpatialOCRNet_s1(self.split_point)
 
     def construct_net_s2(self):
         if self.backbone == 'resnet':
@@ -128,7 +128,7 @@ class construct_net(object):
             model_CTC.add_exit(end_point=self.begin_point+self.split_point)
             return model_CTC
         elif self.backbone == 'openseg':
-            return SpatialOCRNet_s2(self.start_point)
+            return SpatialOCRNet_s2(self.split_point)
 
     def construct_net_s3(self):
         if self.backbone == 'resnet' or self.backbone == 'posenet':
@@ -196,15 +196,15 @@ def model_export_func(model_name, begin_point, split_point, exit_type=False):
     #                             split_point_s3=33, 
     #                             is_init=True)
     # s2_input_names = ["input"]
-    # # s2_output_names = ["output_dsn", "output"]
-    # s2_output_names = ["output"]
+    # s2_output_names = ["output_dsn", "output"]
+    # # s2_output_names = ["output"]
     # torch.onnx.export(tmp_model, dummy_input1,
     #                     "/home/slzhang/projects/ETBA/Inference/src/exit_placement/models/" + inst.backbone + "_s0.onnx",
     #                 input_names=s2_input_names, output_names=s2_output_names,
     #                 verbose=False,dynamic_axes={
     #                                 'input': {0: 'batch_size'},
+    #                                 'output_dsn': {0: 'batch_size'},
     #                                 'output': {0: 'batch_size'},
-    #                                 # 'output': {0: 'batch_size'},
     #                             },opset_version=11)
     # exit()
 
@@ -491,4 +491,4 @@ def model_export_func_backup(model_name, split_point_s1, split_point_s2, split_p
 
 
 if __name__ == '__main__':
-    model_export_func('posenet', 0, 2)
+    model_export_func('posenet', 0, 19)

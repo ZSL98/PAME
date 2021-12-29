@@ -86,9 +86,9 @@ target_link_libraries(sample
 # find_package(Torch REQUIRED)
 # find_package(Torch REQUIRED PATHS /home/slzhang/mytool/pytorch/torch)
 
-set(Python3_EXECUTABLE /home/slzhang/miniconda/envs/fedml/bin/python)
-set(Python3_INCLUDE_DIR /home/slzhang/miniconda/envs/fedml/include/python3.7m)
-set(Python3_LIBRARY /home/slzhang/miniconda/envs/fedml/lib/libpython3.7m.so)
+set(Python3_EXECUTABLE /home/slzhang/anaconda3/envs/etba/bin/python)
+set(Python3_INCLUDE_DIR /home/slzhang/anaconda3/envs/etba/include/python3.7m)
+set(Python3_LIBRARY /home/slzhang/anaconda3/envs/etba/lib/libpython3.7m.so)
 # find_package(Python3 REQUIRED COMPONENTS Interpreter Development)
 # message(STATUS ${TORCH_LIBRARIES})
 # message(STATUS ${TORCH_INCLUDE_DIRS})

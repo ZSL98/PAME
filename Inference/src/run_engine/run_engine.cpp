@@ -17,6 +17,16 @@ const size_t& batch_size_s1, const size_t& batch_size_s2,
     // cudaStreamCreate(&(stream_1));
     // cudaStreamCreate(&(stream_2));
     CUDACHECK(cudaEventCreate(&infer_start));
+    std::vector<cudaEvent_t> query_start_copy(batch_num_);
+    std::vector<cudaEvent_t> query_end_copy(batch_num_);
+    query_start = query_start_copy;
+    query_end = query_end_copy;
+    for (size_t i = 0; i < batch_num_; i++)
+    {
+        CUDACHECK(cudaEventCreate(&query_start[i]));
+        CUDACHECK(cudaEventCreate(&query_end[i]));
+    }
+    
     CUDACHECK(cudaEventCreate(&s1_end));
     CUDACHECK(cudaEventCreate(&s2_end));
     // CUDACHECK(cudaEventCreate(&check_start));
@@ -81,7 +91,7 @@ bool Profiler::construct(
 {
     auto profile = builder->createOptimizationProfile();
     samplesCommon::OnnxSampleParams params;
-    params.dataDirs.emplace_back("/home/slzhang/projects/ETBA/Inference/src/run_engine/models");
+    params.dataDirs.emplace_back("/home/slzhang/projects/ETBA/Inference/src/exit_placement/models");
     //data_dir.push_back("samples/VGG16/");
     auto parsed = parser->parseFromFile(locateFile(model_name + ".onnx", params.dataDirs).c_str(),
     static_cast<int>(sample::gLogger.getReportableSeverity()));
@@ -209,7 +219,7 @@ std::vector<int> generate_copy_list(std::string movon_dict_path)
         record_batch_size.push_back(0);
         for(size_t i = 0; i < len; i++)
         {
-            record_batch_size[idx] += array[i].GetBool();
+            record_batch_size[idx] += array[i].GetUint();
         }
         idx += 1;
     }
@@ -455,8 +465,11 @@ std::vector<float> Profiler::execute_2stage(const bool separate_or_not, const si
         std::cout << "Error when inferring S2 model" << std::endl;
     }
 
+    float query_time = 0;
+    int violation = 0;
+    int warmup_num = 5;
+    std::vector<float> query_time_record;
     CUDACHECK(cudaDeviceSynchronize());
-
     CUDACHECK(cudaEventRecord(infer_start, stream_1));
     for (int i = 0; i < batch_num_; i++){
         // buffer_s1.copyInputToDeviceAsync(stream_2);
@@ -464,6 +477,7 @@ std::vector<float> Profiler::execute_2stage(const bool separate_or_not, const si
 
         engine_idx_1 = 3;
         mContext_list[engine_idx_1]->setBindingDimensions(0, input_dims[engine_idx_1]);
+        CUDACHECK(cudaEventRecord(query_start[i], stream_1));
         status_s1 = mContext_list[engine_idx_1]->enqueueV2(buffer_s1.getDeviceBindings().data(), stream_1, nullptr);
         if (!status_s1) {
             std::cout << "Error when inferring S1 model" << std::endl;
@@ -476,8 +490,13 @@ std::vector<float> Profiler::execute_2stage(const bool separate_or_not, const si
         next_batch_size = record_batch_size[std::rand()%(record_batch_size.size())];
         // next_batch_size = 128;
 
+        CUDACHECK(cudaDeviceSynchronize());
         if (next_batch_size == 0) {
-            CUDACHECK(cudaDeviceSynchronize());
+            CUDACHECK(cudaEventRecord(query_end[i], stream_1));
+            if (i >= warmup_num) {
+                CUDACHECK(cudaEventElapsedTime(&query_time, query_start[i-warmup_num], query_end[i-warmup_num]));
+                query_time_record.push_back(query_time);
+            }
             continue;
         }
 
@@ -495,12 +514,32 @@ std::vector<float> Profiler::execute_2stage(const bool separate_or_not, const si
         input_dims[engine_idx_2].d[0] = next_batch_size;
         mContext_list[engine_idx_2]->setBindingDimensions(0, input_dims[engine_idx_2]);
         status_s2 = mContext_list[engine_idx_2]->enqueueV2(buffer_s2.getDeviceBindings().data(), stream_0, nullptr);
+        CUDACHECK(cudaEventRecord(query_end[i], stream_0));
+        if (i >= warmup_num) {
+            CUDACHECK(cudaEventElapsedTime(&query_time, query_start[i-warmup_num], query_end[i-warmup_num]));
+            query_time_record.push_back(query_time);
+        }
         if (!status_s2) {
             std::cout << "Error when inferring S2 model" << std::endl;
         }
-
-        CUDACHECK(cudaDeviceSynchronize());
+        if (next_batch_size >= 0) {
+            CUDACHECK(cudaDeviceSynchronize());
+        }
+        else {
+            continue;
+        }
     }
+
+    float sum_query_time = 0;
+    for (int i = 0; i < query_time_record.size(); i++){
+        sum_query_time += query_time_record[i];
+        if (query_time_record[i] > 129) {
+            violation += 1;
+        }
+    }
+    std::cout << "Violation rate: " << violation/query_time_record.size() << std::endl;
+    float avg_query_time = sum_query_time / (batch_num_-warmup_num);
+    std::cout << "Average query time: " << avg_query_time << " ms" << std::endl;
 
     CUDACHECK(cudaDeviceSynchronize());
     CUDACHECK(cudaEventRecord(s2_end, stream_0));
@@ -713,7 +752,7 @@ int main(int argc, char** argv)
     config_doc.ParseStream(config_fs);
 
     std::ofstream outFile;
-    Py_Initialize();
+    // Py_Initialize();
     int split_point = config_doc["split_point"].GetUint();
     // bool model_generated = model_generation(model_name, config_doc["begin_point"].GetUint(), split_point);
     // if(!model_generated){
@@ -729,19 +768,19 @@ int main(int argc, char** argv)
                             config_doc["bs_num"].GetUint(), config_doc["begin_point"].GetUint(),
                             nvinfer1::ILogger::Severity::kERROR);
 
-    std::string movon_dict_path_1 = "/home/slzhang/projects/ETBA/Train/moveon_dict/resnet_exit_e9_b128.json";
-    std::string movon_dict_path_2 = "/home/slzhang/projects/ETBA/Train/moveon_dict/resnet_exit_e22_l9_b128.json";
+    std::string movon_dict_path_1 = "/home/slzhang/projects/ETBA/Train/final_moveon_dict/posenet/posenet_exit_e19_b32.json";
+    std::string movon_dict_path_2 = "/home/slzhang/projects/ETBA/Train/final_moveon_dict/posenet/posenet_exit_e19_b32.json";
     std::vector<int> record_batch_size = generate_copy_list(movon_dict_path_1);
     std::vector<int> record_batch_size_2 = generate_copy_list(movon_dict_path_2);
     std::vector<std::vector<int>> multi_record_batch_size;
     multi_record_batch_size.push_back(record_batch_size);
     multi_record_batch_size.push_back(record_batch_size_2);
     std::vector<std::string> model_name_list;
-    model_name_list.push_back("resnet_stage1");
-    model_name_list.push_back("resnet_stage2");
-    model_name_list.push_back("resnet_stage3");
+    model_name_list.push_back("posenet_s1");
+    model_name_list.push_back("posenet_s2");
+    // model_name_list.push_back("resnet_stage3");
     std::cout << "Building engines ..." << std::endl;
-    inst.build(model_name_list, 128, 4);
+    inst.build(model_name_list, infer_batch_size_s1, 4);
     std::cout << "Building finished!" << std::endl;
 
     std::vector<float> metrics;
@@ -751,12 +790,12 @@ int main(int argc, char** argv)
                                     config_doc["copy_method"].GetUint(), false, model_name);
     }
     else {
-        // metrics = inst.execute(config_doc["seperate_or_not"].GetBool(),
-        //                         config_doc["test_iter"].GetUint(), record_batch_size, 
-        //                         config_doc["copy_method"].GetUint(), false, model_name);
-        metrics = inst.execute_multi_stage(config_doc["seperate_or_not"].GetBool(),
-                                config_doc["test_iter"].GetUint(), multi_record_batch_size, 
-                                config_doc["copy_method"].GetUint(), false, model_name);                  
+        metrics = inst.execute_2stage(config_doc["seperate_or_not"].GetBool(),
+                                config_doc["test_iter"].GetUint(), record_batch_size, 
+                                config_doc["copy_method"].GetUint(), false, model_name);
+        // metrics = inst.execute_multi_stage(config_doc["seperate_or_not"].GetBool(),
+        //                         config_doc["test_iter"].GetUint(), multi_record_batch_size, 
+        //                         config_doc["copy_method"].GetUint(), false, model_name);                  
     }
 
     std::cout << "Batch size: " << infer_batch_size_s2 << "/" << infer_batch_size_s1 << "  Elapsed time: " << metrics[0]/inst.batch_num_ << std::endl;
@@ -772,6 +811,6 @@ int main(int argc, char** argv)
     }
 
     outFile.close();
-    Py_Finalize();
+    // Py_Finalize();
     return 0;
 }
