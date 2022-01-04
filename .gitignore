@@ -27,3 +27,4 @@ train_ouput*
 *.png
 *exit*json
 *trainall*json
+debug
