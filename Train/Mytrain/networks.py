@@ -889,7 +889,7 @@ class ResNetwthMultiExit(nn.Module):
         self.fc = nn.ModuleList()
 
         for i in range(len(exit_list)):
-            self.exit.append(self.ori_backbone[i].backbone_s1.exit)
+            self.exit.append(self.ori_backbone[i].exit)
             self.fc.append(self.ori_backbone[i].fc)
         
         del(self.ori_backbone)

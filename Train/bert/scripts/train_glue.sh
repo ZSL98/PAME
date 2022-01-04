@@ -1,5 +1,5 @@
 # choose from 'cola', 'mnli', 'mrpc', 'qnli', 'qqp', 'rte', 'sst2', 'stsb', 'wnli'
-TASK_NAME='mnli'
+TASK_NAME='cola'
 EXP_PREFIX=debug
 
 SEED=42

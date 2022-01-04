@@ -26,3 +26,4 @@ train_ouput*
 *.npy
 *.png
 *exit*json
+debug
