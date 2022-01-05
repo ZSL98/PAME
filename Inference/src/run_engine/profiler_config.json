@@ -1,15 +1,20 @@
 {
-    "bs_s1": 128,
-    "bs_s2": 128,
-    "b_interval": 8,
-    "log_lvl": "INFO",
-    "bs_num": 100,
-    "test_iter": 1,
-    "copy_method": 0,
-    "seperate_or_not": true,
-    "begin_point": 0,
-    "split_point": 10,
-    "termi_point": 34,
-    "fp16": false
-  }
-  
+  "bs_s1": 16,
+  "bs_s2": 16,
+  "b_interval": 8,
+  "log_lvl": "INFO",
+  "bs_num": 200,
+  "test_iter": 1,
+  "copy_method": 0,
+  "seperate_or_not": true,
+  "begin_point": 0,
+  "split_point": 16,
+  "termi_point": 34,
+  "fp16": false,
+  "moveon_dict_path_1": "/home/slzhang/projects/ETBA/Train/moveon_dict/bert/mrpc/mrpc_exit_l[0, 6]_b16_t99.json",
+  "moveon_dict_path_2": "/home/slzhang/projects/ETBA/Train/moveon_dict/bert/mrpc/mrpc_exit_l[0, 6, 9]_b16_t99.json",
+  "stage_num": 3,
+  "model_1": "bert_l[0, 6]",
+  "model_2": "bert_l[6, 9]",
+  "model_3": "bert_l[9, 12]"
+}

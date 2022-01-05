@@ -4,6 +4,7 @@ import os
 import sys
 import csv
 import json
+import copy
 import time
 import wandb
 import logging
@@ -836,7 +837,9 @@ class convert_bert:
     def __init__(self, split_point, task_name, batch_size, last_exit, metric_thres) -> None:
         super().__init__()
         self.task_name = task_name
-        self.last_exit = last_exit
+        self.last_exit = last_exit.copy()
+        self.exit_sequence = last_exit.copy()
+        self.exit_sequence.append(split_point)
         self.batch_size = batch_size
         self.split_point = split_point
         self.raw_datasets = load_dataset("glue", task_name, cache_dir=None)
@@ -1105,15 +1108,15 @@ class convert_bert:
 
         self.moveon_dict = dict()
         self.hist_data = []
-        if self.last_exit == None:
+        if len(self.last_exit) == 1:
             last_moveon_dict = dict()
         else:
-            with open('./moveon_dict/bert/{}/{}_exit_e{}_b{}_t{}.json'.format(self.task_name, self.task_name, self.last_exit, self.batch_size, self.metric_thres), 'rb') as f:
+            with open('./moveon_dict/bert/{}/{}_exit_l{}_b{}_t{}.json'.format(self.task_name, self.task_name, self.last_exit, self.batch_size, self.metric_thres), 'rb') as f:
                 last_moveon_dict = json.load(f)
 
         for i, (eval_dataset, task) in enumerate(zip(eval_datasets, tasks)):
 
-            if self.last_exit == None:
+            if len(self.last_exit) == 1:
                 last_moveon_dict[str(i)] = [1]*len(eval_dataset)
 
             predictions = eval_eehead.predict(eval_dataset, metric_key_prefix="predict").predictions
@@ -1147,11 +1150,7 @@ class convert_bert:
         cnts = plt.hist(self.hist_data, bins=16, range=(0,1))
         print(cnts[0])
 
-        if self.last_exit == None:
-            with open('./moveon_dict/bert/{}/{}_exit_e{}_b{}_t{}.json'.format(self.task_name, self.task_name, self.split_point, self.batch_size, self.metric_thres), "w+") as f:
-                json.dump(self.moveon_dict, f)
-        else:
-            with open('./moveon_dict/bert/{}/{}_exit_e{}_l{}_b{}_t{}.json'.format(self.task_name, self.task_name, self.split_point, self.last_exit, self.batch_size, self.metric_thres), "w+") as f:
+        with open('./moveon_dict/bert/{}/{}_exit_l{}_b{}_t{}.json'.format(self.task_name, self.task_name, self.exit_sequence, self.batch_size, self.metric_thres), "w+") as f:
                 json.dump(self.moveon_dict, f)
 
         plt.close()
@@ -1629,14 +1628,17 @@ def grid_search(task_name, split_point, batch_size, init=True, metric_thres=98, 
                 inst.p_thres = p_thres
                 metric_eehead, metric_finalhead, moveon_ratio, metric_avg = inst.eval_bert(eval_eehead, eval_finalhead)
                 wandb.log({'split_point':split_point, 'p_thres':p_thres, 'moveon_ratio':moveon_ratio, 'metric_avg':metric_avg})
-                with open('/home/slzhang/projects/ETBA/Train/conversion_results/bert_trainall/{}/{}_results_e{}_l{}.csv'.format(\
-                        task_name, task_name, split_point, last_exit if last_exit is not None else '0'), 'a+') as f:
+                exit_sequence = last_exit+[split_point]
+                with open('/home/slzhang/projects/ETBA/Train/conversion_results/bert_trainall/{}/{}_results_l{}.csv'.format(\
+                        task_name, task_name, exit_sequence), 'a+') as f:
                     writer = csv.writer(f)
                     writer.writerow([p_thres, metric_eehead, metric_finalhead, moveon_ratio, metric_avg])
     
+        exit_sequence = last_exit+[split_point]
+        print(exit_sequence)
         print('Grid searcing has been finished.')
-        result = pd.read_csv('/home/slzhang/projects/ETBA/Train/conversion_results/bert_trainall/{}/{}_results_e{}_l{}.csv'.format(\
-                    task_name, task_name, split_point, last_exit if last_exit is not None else '0'), header=None)
+        result = pd.read_csv('/home/slzhang/projects/ETBA/Train/conversion_results/bert_trainall/{}/{}_results_l{}.csv'.format(\
+                    task_name, task_name, exit_sequence), header=None)
         result_satisfied = result[result.iloc[:,4] > best_metric*metric_thres*0.01]
         opt_p_thres = result_satisfied[result_satisfied.iloc[:,3] == result_satisfied.iloc[:,3].min()].iloc[:,0]
 
@@ -1660,23 +1662,25 @@ if __name__ == '__main__':
     metric_thres = 99
     init = True
     batch_size = 16
-    last_exit = 9
+    last_exit = [0, 7, 8]
+    exit_num = len(last_exit)
     all_or_sep = True
     all_or_sep_name = 'all' if all_or_sep else 'sep'
 
     task_metric = 83.58
-    if last_exit == None:
+    if len(last_exit) == 1:
         best_metric = task_metric
     else:
-        last_e = 0 if last_exit == None else last_exit
         result = pd.read_csv('/home/slzhang/projects/ETBA/Train/opt_thres_record/{}_train{}.csv'.format(\
                     dataset_name, all_or_sep_name), header=None)
-        last_metric = result[result[0]==0][result[1]==metric_thres][result[3]==last_exit][5].item()
-        print(last_metric)
-        mvon_ratio = result[result[0]==0][result[1]==metric_thres][result[3]==last_exit][7].item()
-        print(mvon_ratio)
-        best_metric = (task_metric*metric_thres*0.01 - last_metric*(1-mvon_ratio))/mvon_ratio
-        print(best_metric)
+        best_metric = task_metric*metric_thres*0.01
+        for i in range(1, len(last_exit)):
+            last_metric = result[result[0]==str(last_exit[:i+1])][result[1]==metric_thres][4].item()
+            print(last_metric)
+            mvon_ratio = result[result[0]==str(last_exit[:i+1])][result[1]==metric_thres][6].item()
+            print(mvon_ratio)
+            best_metric = (best_metric - last_metric*(1-mvon_ratio))/mvon_ratio
+            print(best_metric)
 
     # imagenet: 77.34 (sep), 
     # imagewoof: 
@@ -1684,7 +1688,7 @@ if __name__ == '__main__':
     # mrpc:     83.58, 74.72(l5), 69.105(l6)
     # sst2:     0.9163
     # rte:      0.6498
-    # qnli:     0.9083
+    # qnli:     90.83
     # cola:     0.8255 (acc)
     # posenet:  0.8982
     # openseg:  0.77058
@@ -1692,7 +1696,7 @@ if __name__ == '__main__':
     if init:
         wandb.init(
             project="metric_convert", 
-            name=task+'_'+dataset_name+'_'+all_or_sep_name,
+            name=task+'_'+dataset_name+'_'+all_or_sep_name+'_'+str(last_exit),
             config={
             "architecture": "resnet101",})
 
@@ -1739,7 +1743,7 @@ if __name__ == '__main__':
                     writer.writerow([metric_thres, batch_size, split_point, opt_p_thres, opt_n_thres, a, b, c, d])
 
         elif task == 'bert':
-            for split_point in [1,2,3,4,5,6,7,8,9,10,11]:
+            for split_point in range(last_exit[-1]+1, 12):
                 opt_p_thres = grid_search(dataset_name, split_point, batch_size, init=init, metric_thres=metric_thres, best_metric=best_metric, last_exit=last_exit)
                 inst = convert_bert(split_point=split_point, task_name=dataset_name, batch_size=batch_size, last_exit=last_exit, metric_thres=metric_thres)
                 inst.p_thres = opt_p_thres
@@ -1748,7 +1752,7 @@ if __name__ == '__main__':
                 a,b,c,d = inst.eval_bert(eval_eehead, eval_finalhead)
                 with open('/home/slzhang/projects/ETBA/Train/opt_thres_record/{}_trainall.csv'.format(dataset_name), 'a+') as f:
                     writer = csv.writer(f)
-                    writer.writerow([last_exit if last_exit is not None else 0, metric_thres, batch_size, split_point, opt_p_thres, a, b, c, d])
+                    writer.writerow([last_exit+[split_point], metric_thres, batch_size, opt_p_thres, a, b, c, d])
 
         elif task == 'Wav2Vec2':
             inst = convert_Wav2Vec2(split_point=5)

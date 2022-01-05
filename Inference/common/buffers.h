@@ -756,9 +756,9 @@ public:
         , mCopyMethod(copyMethod)
     {
         // buffer_type:
-        // 0: [input_ids([1, 7]), attention_mask, token_type_ids, c_output([1, 7, 768]), exit_output([1, 2])]
-        // 1: [input_ids([1, 7, 768]), attention_mask, c_output([1, 7, 768]), exit_output([1, 2])]
-        // 2: [input_ids([1, 7, 768]), c_output([1, 2])]
+        // 0: [input_ids([1, 64]), attention_mask, token_type_ids, c_output([1, 64, 768]), exit_output([1, 2])]
+        // 1: [input_ids([1, 64, 768]), attention_mask, c_output([1, 64, 768]), exit_output([1, 2])]
+        // 2: [input_ids([1, 64, 768]), c_output([1, 2])]
 
         // Full Dims implies no batch size.
         // assert(engine->hasImplicitBatchDimension() || mBatchSize == 0);
@@ -783,7 +783,7 @@ public:
                 nvinfer1::DataType type = mEngine->getBindingDataType(i);
                 auto dims = context ? context->getBindingDimensions(i) : mEngine->getBindingDimensions(i);
                 dims.d[0] = 1;
-                dims.d[1] = 7;
+                dims.d[1] = 64;
                 size_t singleVol = samplesCommon::volume(dims);
                 size_t vol = singleVol * next_batch_size;
                 std::shared_ptr<BertManagedBuffer> new_manBuf{new BertManagedBuffer(vol, type)};
@@ -817,7 +817,7 @@ public:
                 // One source from the last sub module.
                 auto dims = mEngine->getBindingDimensions(i);
                 dims.d[0] = batchSize;
-                dims.d[1] = 7;
+                dims.d[1] = 64;
                 // std::cout << "One source. Input size: " << dims << std::endl;
                 std::shared_ptr<BertManagedBuffer> manBuf_ptr = srcPtr;
                 mManagedBuffers.emplace_back(std::move(manBuf_ptr));
@@ -827,7 +827,7 @@ public:
             else if (i == 0) {
                 auto dims = mEngine->getBindingDimensions(i);
                 dims.d[0] = batchSize;
-                dims.d[1] = 7;
+                dims.d[1] = 64;
                 // std::cout << "No source. Input size: " << dims << std::endl;
             }
 
@@ -848,8 +848,8 @@ public:
             }
             */
             dims.d[0] = mBatchSize;
-            dims.d[1] = 7;
-            if (i==4){dims.d[1] = 2;}
+            dims.d[1] = 64;
+            // if (i==4){dims.d[1] = 2;}
             size_t vol = samplesCommon::volume(dims);
             std::shared_ptr<BertManagedBuffer> manBuf{new BertManagedBuffer(vol, type)};
             //mDeviceBindings.emplace_back(manBuf->deviceBuffer.data());

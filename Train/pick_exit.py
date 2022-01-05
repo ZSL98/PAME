@@ -12,9 +12,9 @@ latency_satisfied_batch_ratio = [0]*33
 
 moveon_ratio_thres = [0.8125,0.75,0.75]+[0.8125]*20+[0.75]+[0.6875]*2+[0.625]+[0.5625]*2+[0.4375]*2+[0.875]*2
 
-for exit in range(6,12,1):
+for exit in range(9,12,1):
     ori_hist_data = []
-    with open('./moveon_dict/bert/mrpc/{}_exit_e{}_l6_b{}_t{}.json'.format(dataset, exit, batch_size, metric_thres), 'rb') as f:
+    with open('./moveon_dict/bert/{}/{}_exit_l[0, 7, 8, {}]_b{}_t{}.json'.format(dataset, dataset, exit, batch_size, metric_thres), 'rb') as f:
         last_moveon_dict = json.load(f)
 
     if dataset in ['cola', 'mnli', 'mrpc', 'qnli', 'qqp', 'rte', 'sst2', 'stsb', 'wnli']:

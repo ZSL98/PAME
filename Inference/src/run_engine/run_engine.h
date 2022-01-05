@@ -56,6 +56,8 @@ public:
                              const std::vector<std::vector<int>> record_batch_size, const int copy_method, const bool overload, std::string model_name);
     std::vector<float> bert_execute(const bool separate_or_not, const size_t& num_test,
                              const std::vector<int> record_batch_size, const int copy_method, const bool overload, std::string model_name);
+    std::vector<float> bert_execute_multi_stage(const bool separate_or_not, const size_t& num_test,
+                             const std::vector<std::vector<int>> record_batch_size, const int copy_method, const bool overload, std::string model_name);
 
 private:
     nvinfer1::DataType model_dtype_;
@@ -68,6 +70,8 @@ private:
     cudaEvent_t infer_start;
     cudaEvent_t s1_end;
     cudaEvent_t s2_end;
+    std::vector<cudaEvent_t> query_start;
+    std::vector<cudaEvent_t> query_end;
     cudaEvent_t check_start;
     cudaEvent_t check_end;
     std::vector<nvinfer1::Dims> input_dims;

@@ -199,17 +199,17 @@ bool Profiler::construct_s1(
 
     if (model_name == "bert"){
         if (begin_point_ == 0){
-            input_dims_s2 = network->getInput(0)->getDimensions();
-            std::cout << input_dims_s2 << std::endl;
+            input_dims_s1 = network->getInput(0)->getDimensions();
+            std::cout << input_dims_s1 << std::endl;
             size_t sequence_length = 7;
 
-            nvinfer1::Dims min_dims = input_dims_s2;
+            nvinfer1::Dims min_dims = input_dims_s1;
             min_dims.d[0] = batch_size_s1_;
             min_dims.d[1] = sequence_length;
-            nvinfer1::Dims opt_dims = input_dims_s2;
+            nvinfer1::Dims opt_dims = input_dims_s1;
             opt_dims.d[0] = batch_size_s1_;
             opt_dims.d[1] = sequence_length;
-            nvinfer1::Dims max_dims = input_dims_s2;
+            nvinfer1::Dims max_dims = input_dims_s1;
             max_dims.d[0] = batch_size_s1_;
             max_dims.d[1] = sequence_length;
 
