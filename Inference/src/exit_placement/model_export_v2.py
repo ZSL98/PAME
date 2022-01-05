@@ -295,7 +295,7 @@ def model_export_func(model_name, begin_point, split_point, exit_type=False):
             s1_dynamic_axes.pop('token_type_ids')
             s1_dynamic_axes['output1'] = {0: 'batch', 1: 'sequence'}
             s1_dynamic_axes['exit_output'] = {0: 'batch'}
-            s1_model_args = (torch.Tensor(1, 7, 768), torch.Tensor(1, 7))
+            s1_model_args = (torch.Tensor(1, 64, 768), torch.Tensor(1, 64))
 
             torch.onnx.export(
                 s1_model,
@@ -313,7 +313,7 @@ def model_export_func(model_name, begin_point, split_point, exit_type=False):
         s2_dynamic_axes = copy.deepcopy(dynamic_axes)
         s2_dynamic_axes.pop('token_type_ids')
         s2_dynamic_axes['final_output'] = {0: 'batch'}
-        s2_model_args = (torch.Tensor(1, 7, 768), torch.Tensor(1, 7))
+        s2_model_args = (torch.Tensor(1, 64, 768), torch.Tensor(1, 64))
 
         torch.onnx.export(
             s2_model,
@@ -472,7 +472,7 @@ def model_export_func_backup(model_name, split_point_s1, split_point_s2, split_p
         s2_dynamic_axes = copy.deepcopy(dynamic_axes)
         s2_dynamic_axes.pop('token_type_ids')
         s2_dynamic_axes['final_output'] = {0: 'batch'}
-        s2_model_args = (torch.Tensor(1, 7, 768), torch.Tensor(1, 7))
+        s2_model_args = (torch.Tensor(1, 64, 768), torch.Tensor(1, 64))
 
         torch.onnx.export(
             s2_model,
@@ -491,4 +491,4 @@ def model_export_func_backup(model_name, split_point_s1, split_point_s2, split_p
 
 
 if __name__ == '__main__':
-    model_export_func('posenet', 0, 19)
+    model_export_func('bert', 0, 6)

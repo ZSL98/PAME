@@ -489,4 +489,4 @@ def model_export_func_backup(model_name, split_point_s1, split_point_s2, split_p
 
 
 if __name__ == '__main__':
-    model_export_func('resnet', 9, 13)
+    model_export_func('bert', 6, 9)

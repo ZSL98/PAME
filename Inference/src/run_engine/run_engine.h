@@ -56,6 +56,8 @@ public:
                              const std::vector<std::vector<int>> record_batch_size, const int copy_method, const bool overload, std::string model_name);
     std::vector<float> bert_execute(const bool separate_or_not, const size_t& num_test,
                              const std::vector<int> record_batch_size, const int copy_method, const bool overload, std::string model_name);
+    std::vector<float> bert_execute_multi_stage(const bool separate_or_not, const size_t& num_test,
+                             const std::vector<std::vector<int>> record_batch_size, const int copy_method, const bool overload, std::string model_name);
 
 private:
     nvinfer1::DataType model_dtype_;
