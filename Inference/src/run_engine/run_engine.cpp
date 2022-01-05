@@ -1032,6 +1032,9 @@ std::vector<float> Profiler::execute_multi_stage(const bool separate_or_not, con
             continue;
         }
     }
+    std::cout << "Violation rate: " << violation/query_time_record.size() << std::endl;
+    float avg_query_time = sum_query_time / (batch_num_-warmup_num);
+    std::cout << "Average query time: " << avg_query_time << " ms" << std::endl;
 
     float sum_batch_time = 0;
     for (int i = 0; i < batch_time_record.size(); i++){
@@ -1119,7 +1122,6 @@ int main(int argc, char** argv)
                             nvinfer1::ILogger::Severity::kERROR);
 
     std::string movon_dict_path_1 = config_doc["moveon_dict_path_1"].GetString();
-
     std::vector<int> record_batch_size = generate_copy_list(movon_dict_path_1, infer_batch_size_s1);
     std::vector<std::string> model_name_list;
     model_name_list.push_back(config_doc["model_1"].GetString());
