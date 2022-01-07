@@ -696,7 +696,7 @@ std::vector<float> Profiler::execute(const bool separate_or_not, const size_t& n
 
             exitPtr = buffer_s1.getImmediateBuffer(2);
             exitPtr_device = static_cast<float*>(exitPtr->deviceBuffer.data());
-            max_reduction_p(exitPtr_device, copy_list, stream_1);
+            max_reduction_r(exitPtr_device, copy_list, stream_1);
 
 
             std::shared_ptr<samplesCommon::ManagedBuffer> manBuf_ptr = buffer_s1.getImmediateBuffer(1);

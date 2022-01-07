@@ -2,8 +2,8 @@ import numpy as np
 import json
 import matplotlib.pyplot as plt
 
-dataset = 'mrpc'
-batch_size = 16
+dataset = 'imagenet'
+batch_size = 32
 metric_thres = 99
 latency_satisfied_batch_cnt = [0]*33
 latency_satisfied_batch_ratio = [0]*33
@@ -12,10 +12,17 @@ latency_satisfied_batch_ratio = [0]*33
 
 moveon_ratio_thres = [0.8125,0.75,0.75]+[0.8125]*20+[0.75]+[0.6875]*2+[0.625]+[0.5625]*2+[0.4375]*2+[0.875]*2
 
-for exit in range(9,12,1):
+for exit in range(1,33,3):
     ori_hist_data = []
-    with open('./moveon_dict/bert/{}/{}_exit_l[0, 7, 8, {}]_b{}_t{}.json'.format(dataset, dataset, exit, batch_size, metric_thres), 'rb') as f:
-        last_moveon_dict = json.load(f)
+    if dataset in ['cola', 'mnli', 'mrpc', 'qnli', 'qqp', 'rte', 'sst2', 'stsb', 'wnli']:
+        with open('./moveon_dict/bert/{}/{}_exit_l[0, 5, {}]_b{}_t{}.json'.format(dataset, dataset, exit, batch_size, metric_thres), 'rb') as f:
+            last_moveon_dict = json.load(f)
+    elif dataset in ['imagenet', 'imagenette', 'imagewoof']:
+        with open('./moveon_dict/resnet/{}/resnet_exit_l[0, {}]_b{}_t{}.json'.format(dataset, exit, batch_size, metric_thres), 'rb') as f:
+            last_moveon_dict = json.load(f)
+    else:
+        with open('./moveon_dict/{}/{}_trainall_l[0, {}]_b{}_t{}.json'.format(dataset, dataset, exit, batch_size, metric_thres), 'rb') as f:
+            last_moveon_dict = json.load(f)       
 
     if dataset in ['cola', 'mnli', 'mrpc', 'qnli', 'qqp', 'rte', 'sst2', 'stsb', 'wnli']:
         last_moveon_dict = [last_moveon_dict['0'][i:i+batch_size] for i in range(0,len(last_moveon_dict['0']), batch_size)]
