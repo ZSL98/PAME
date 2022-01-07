@@ -162,19 +162,89 @@ bool Profiler::construct_s0(
         return false;
     }
 
-    input_dims_s0 = network->getInput(0)->getDimensions();
-    input_tensor_names_ = network->getInput(0)->getName();
+    if (model_name == "bert"){
+        if (begin_point_ == 0){
+            input_dims_s0 = network->getInput(0)->getDimensions();
+            size_t sequence_length = 64;
 
-    nvinfer1::Dims min_dims = input_dims_s0;
-    min_dims.d[0] = batch_size_s1_;
-    nvinfer1::Dims opt_dims = input_dims_s0;
-    opt_dims.d[0] = batch_size_s1_;
-    nvinfer1::Dims max_dims = input_dims_s0;
-    max_dims.d[0] = batch_size_s1_;
+            nvinfer1::Dims min_dims = input_dims_s0;
+            min_dims.d[0] = batch_size_s1_;
+            min_dims.d[1] = sequence_length;
+            nvinfer1::Dims opt_dims = input_dims_s0;
+            opt_dims.d[0] = batch_size_s1_;
+            opt_dims.d[1] = sequence_length;
+            nvinfer1::Dims max_dims = input_dims_s0;
+            max_dims.d[0] = batch_size_s1_;
+            max_dims.d[1] = sequence_length;
 
-    profile->setDimensions(input_tensor_names_.c_str(), nvinfer1::OptProfileSelector::kMIN, min_dims);
-    profile->setDimensions(input_tensor_names_.c_str(), nvinfer1::OptProfileSelector::kOPT, opt_dims);
-    profile->setDimensions(input_tensor_names_.c_str(), nvinfer1::OptProfileSelector::kMAX, max_dims);
+            input_tensor_names_0 = network->getInput(0)->getName();
+            input_tensor_names_1 = network->getInput(1)->getName();
+            input_tensor_names_2 = network->getInput(2)->getName();
+
+            profile->setDimensions(input_tensor_names_0.c_str(), nvinfer1::OptProfileSelector::kMIN, min_dims);
+            profile->setDimensions(input_tensor_names_0.c_str(), nvinfer1::OptProfileSelector::kOPT, opt_dims);
+            profile->setDimensions(input_tensor_names_0.c_str(), nvinfer1::OptProfileSelector::kMAX, max_dims);
+
+            profile->setDimensions(input_tensor_names_1.c_str(), nvinfer1::OptProfileSelector::kMIN, min_dims);
+            profile->setDimensions(input_tensor_names_1.c_str(), nvinfer1::OptProfileSelector::kOPT, opt_dims);
+            profile->setDimensions(input_tensor_names_1.c_str(), nvinfer1::OptProfileSelector::kMAX, max_dims);
+
+            profile->setDimensions(input_tensor_names_2.c_str(), nvinfer1::OptProfileSelector::kMIN, min_dims);
+            profile->setDimensions(input_tensor_names_2.c_str(), nvinfer1::OptProfileSelector::kOPT, opt_dims);
+            profile->setDimensions(input_tensor_names_2.c_str(), nvinfer1::OptProfileSelector::kMAX, max_dims);
+        }
+        else {
+            input_dims_s2_0 = network->getInput(0)->getDimensions();
+            input_dims_s2_1 = network->getInput(1)->getDimensions();
+            size_t sequence_length = 64;
+
+            nvinfer1::Dims min_dims_0 = input_dims_s2_0;
+            min_dims_0.d[0] = batch_size_s1_;
+            min_dims_0.d[1] = sequence_length;
+            nvinfer1::Dims opt_dims_0 = input_dims_s2_0;
+            opt_dims_0.d[0] = batch_size_s1_;
+            opt_dims_0.d[1] = sequence_length;
+            nvinfer1::Dims max_dims_0 = input_dims_s2_0;
+            max_dims_0.d[0] = batch_size_s1_;
+            max_dims_0.d[1] = sequence_length;
+
+            nvinfer1::Dims min_dims_1 = input_dims_s2_1;
+            min_dims_1.d[0] = batch_size_s1_;
+            min_dims_1.d[1] = sequence_length;
+            nvinfer1::Dims opt_dims_1 = input_dims_s2_1;
+            opt_dims_1.d[0] = batch_size_s1_;
+            opt_dims_1.d[1] = sequence_length;
+            nvinfer1::Dims max_dims_1 = input_dims_s2_1;
+            max_dims_1.d[0] = batch_size_s1_;
+            max_dims_1.d[1] = sequence_length;
+
+            input_tensor_names_0 = network->getInput(0)->getName();
+            input_tensor_names_1 = network->getInput(1)->getName();
+
+            profile->setDimensions(input_tensor_names_0.c_str(), nvinfer1::OptProfileSelector::kMIN, min_dims_0);
+            profile->setDimensions(input_tensor_names_0.c_str(), nvinfer1::OptProfileSelector::kOPT, opt_dims_0);
+            profile->setDimensions(input_tensor_names_0.c_str(), nvinfer1::OptProfileSelector::kMAX, max_dims_0);
+
+            profile->setDimensions(input_tensor_names_1.c_str(), nvinfer1::OptProfileSelector::kMIN, min_dims_1);
+            profile->setDimensions(input_tensor_names_1.c_str(), nvinfer1::OptProfileSelector::kOPT, opt_dims_1);
+            profile->setDimensions(input_tensor_names_1.c_str(), nvinfer1::OptProfileSelector::kMAX, max_dims_1);
+        }
+    }
+    else {
+        input_dims_s0 = network->getInput(0)->getDimensions();
+        input_tensor_names_ = network->getInput(0)->getName();
+
+        nvinfer1::Dims min_dims = input_dims_s0;
+        min_dims.d[0] = batch_size_s1_;
+        nvinfer1::Dims opt_dims = input_dims_s0;
+        opt_dims.d[0] = batch_size_s1_;
+        nvinfer1::Dims max_dims = input_dims_s0;
+        max_dims.d[0] = batch_size_s1_;
+
+        profile->setDimensions(input_tensor_names_.c_str(), nvinfer1::OptProfileSelector::kMIN, min_dims);
+        profile->setDimensions(input_tensor_names_.c_str(), nvinfer1::OptProfileSelector::kOPT, opt_dims);
+        profile->setDimensions(input_tensor_names_.c_str(), nvinfer1::OptProfileSelector::kMAX, max_dims);
+    }
 
     config->addOptimizationProfile(profile);
     config->setMaxWorkspaceSize(10_GiB);
@@ -200,8 +270,7 @@ bool Profiler::construct_s1(
     if (model_name == "bert"){
         if (begin_point_ == 0){
             input_dims_s1 = network->getInput(0)->getDimensions();
-            std::cout << input_dims_s1 << std::endl;
-            size_t sequence_length = 7;
+            size_t sequence_length = 64;
 
             nvinfer1::Dims min_dims = input_dims_s1;
             min_dims.d[0] = batch_size_s1_;
@@ -232,23 +301,23 @@ bool Profiler::construct_s1(
         else {
             input_dims_s2_0 = network->getInput(0)->getDimensions();
             input_dims_s2_1 = network->getInput(1)->getDimensions();
-            size_t sequence_length = 7;
+            size_t sequence_length = 64;
 
             nvinfer1::Dims min_dims_0 = input_dims_s2_0;
-            min_dims_0.d[0] = batch_size_s2_;
+            min_dims_0.d[0] = batch_size_s1_;
             min_dims_0.d[1] = sequence_length;
             nvinfer1::Dims opt_dims_0 = input_dims_s2_0;
-            opt_dims_0.d[0] = batch_size_s2_;
+            opt_dims_0.d[0] = batch_size_s1_;
             opt_dims_0.d[1] = sequence_length;
             nvinfer1::Dims max_dims_0 = input_dims_s2_0;
             max_dims_0.d[0] = batch_size_s1_;
             max_dims_0.d[1] = sequence_length;
 
             nvinfer1::Dims min_dims_1 = input_dims_s2_1;
-            min_dims_1.d[0] = batch_size_s2_;
+            min_dims_1.d[0] = batch_size_s1_;
             min_dims_1.d[1] = sequence_length;
             nvinfer1::Dims opt_dims_1 = input_dims_s2_1;
-            opt_dims_1.d[0] = batch_size_s2_;
+            opt_dims_1.d[0] = batch_size_s1_;
             opt_dims_1.d[1] = sequence_length;
             nvinfer1::Dims max_dims_1 = input_dims_s2_1;
             max_dims_1.d[0] = batch_size_s1_;
@@ -310,13 +379,13 @@ bool Profiler::construct_s2(
     if (model_name == "bert"){
         input_dims_s2_0 = network->getInput(0)->getDimensions();
         input_dims_s2_1 = network->getInput(1)->getDimensions();
-        size_t sequence_length = 7;
+        size_t sequence_length = 64;
 
         nvinfer1::Dims min_dims_0 = input_dims_s2_0;
         min_dims_0.d[0] = batch_size_s2_;
         min_dims_0.d[1] = sequence_length;
         nvinfer1::Dims opt_dims_0 = input_dims_s2_0;
-        opt_dims_0.d[0] = batch_size_s2_;
+        opt_dims_0.d[0] = batch_size_s1_;
         opt_dims_0.d[1] = sequence_length;
         nvinfer1::Dims max_dims_0 = input_dims_s2_0;
         max_dims_0.d[0] = batch_size_s1_;
@@ -326,7 +395,7 @@ bool Profiler::construct_s2(
         min_dims_1.d[0] = batch_size_s2_;
         min_dims_1.d[1] = sequence_length;
         nvinfer1::Dims opt_dims_1 = input_dims_s2_1;
-        opt_dims_1.d[0] = batch_size_s2_;
+        opt_dims_1.d[0] = batch_size_s1_;
         opt_dims_1.d[1] = sequence_length;
         nvinfer1::Dims max_dims_1 = input_dims_s2_1;
         max_dims_1.d[0] = batch_size_s1_;
@@ -353,7 +422,7 @@ bool Profiler::construct_s2(
         nvinfer1::Dims min_dims = input_dims_s2;
         min_dims.d[0] = batch_size_s2_;
         nvinfer1::Dims opt_dims = input_dims_s2;
-        opt_dims.d[0] = batch_size_s2_;
+        opt_dims.d[0] = batch_size_s1_;
         nvinfer1::Dims max_dims = input_dims_s2;
         max_dims.d[0] = batch_size_s1_;
 
@@ -375,7 +444,7 @@ std::vector<float> Profiler::bert_execute(const bool separate_or_not, const size
     std::vector<float> metrics;
     if (separate_or_not) {
 
-        size_t sequence_length = 7;
+        size_t sequence_length = 64;
 
         if (begin_point_ == 0) {
             input_dims_s1.d[0] = batch_size_s1_;
@@ -466,6 +535,11 @@ std::vector<float> Profiler::bert_execute(const bool separate_or_not, const size
                 std::cout << "Error when inferring S1 model" << std::endl;
             }
 
+            if (next_batch_size == 0) {
+                CUDACHECK(cudaDeviceSynchronize());
+                continue;
+            }
+
             if (begin_point_ == 0) {
                 exitPtr = buffer_s1.getImmediateBuffer(4);
             }
@@ -508,13 +582,13 @@ std::vector<float> Profiler::bert_execute(const bool separate_or_not, const size
     }
     else {
         CUDACHECK(cudaDeviceSynchronize());
-        size_t sequence_length = 7;
+        size_t sequence_length = 64;
         if (begin_point_ == 0) {
-            input_dims_s1.d[0] = batch_size_s1_;
-            input_dims_s1.d[1] = sequence_length;
-            mContext_s0->setBindingDimensions(0, input_dims_s1);
-            mContext_s0->setBindingDimensions(1, input_dims_s1);
-            mContext_s0->setBindingDimensions(2, input_dims_s1);
+            input_dims_s0.d[0] = batch_size_s1_;
+            input_dims_s0.d[1] = sequence_length;
+            mContext_s0->setBindingDimensions(0, input_dims_s0);
+            mContext_s0->setBindingDimensions(1, input_dims_s0);
+            mContext_s0->setBindingDimensions(2, input_dims_s0);
         }
         else {
             input_dims_s2_0.d[0] = batch_size_s1_;
@@ -572,7 +646,7 @@ std::vector<float> Profiler::execute(const bool separate_or_not, const size_t& n
         int *copy_list;
         int size = (int) batch_size_s1_*sizeof(int);
         cudaMalloc(&copy_list, size);
-        max_reduction_p(exitPtr_device, copy_list, stream_1);
+        max_reduction_r(exitPtr_device, copy_list, stream_1);
 
         int next_batch_size = batch_size_s2_;
         int *fake_copy_list;
@@ -615,9 +689,14 @@ std::vector<float> Profiler::execute(const bool separate_or_not, const size_t& n
                 std::cout << "Error when inferring S1 model" << std::endl;
             }
 
+            if (next_batch_size == 0) {
+                CUDACHECK(cudaDeviceSynchronize());
+                continue;
+            }
+
             exitPtr = buffer_s1.getImmediateBuffer(2);
             exitPtr_device = static_cast<float*>(exitPtr->deviceBuffer.data());
-            max_reduction_p(exitPtr_device, copy_list, stream_1);
+            max_reduction_r(exitPtr_device, copy_list, stream_1);
 
 
             std::shared_ptr<samplesCommon::ManagedBuffer> manBuf_ptr = buffer_s1.getImmediateBuffer(1);
@@ -698,7 +777,7 @@ std::vector<float> Profiler::infer(const bool separate_or_not, const size_t& num
         // CUDACHECK(cudaEventRecord(infer_start, stream_1));
 
         if (model_name == "bert"){
-            size_t sequence_length = 7;
+            size_t sequence_length = 64;
             input_dims_s1.d[0] = batch_size_s1_;
             input_dims_s1.d[1] = sequence_length;
             mContext_s1->setBindingDimensions(0, input_dims_s1);
@@ -771,7 +850,7 @@ std::vector<float> Profiler::infer(const bool separate_or_not, const size_t& num
         // generate_fake_copy_list(batch_size_s1_, next_batch_size, fake_copy_list);
 
         if (model_name == "bert"){
-            size_t sequence_length = 7;
+            size_t sequence_length = 64;
             input_dims_s2_0.d[0] = next_batch_size;
             input_dims_s2_1.d[0] = next_batch_size;
             input_dims_s2_0.d[1] = sequence_length;
@@ -908,7 +987,7 @@ bool model_generation(std::string model_name, const int start_point, const int e
 
 int main(int argc, char** argv)
 {
-    int nGpuId = 1;
+    int nGpuId = 0;
     cudaSetDevice(nGpuId);
     // int leastPriority;
     // int greatestPriority;
@@ -934,48 +1013,9 @@ int main(int argc, char** argv)
     Py_Initialize();
     int extend_max_block = 1;
     if (config_doc["seperate_or_not"].GetBool()){
-        for (int split_point = config_doc["split_point"].GetUint(); split_point < config_doc["termi_point"].GetUint(); split_point=split_point+3)
+        for (int split_point = config_doc["split_point"].GetUint(); split_point < config_doc["termi_point"].GetUint(); split_point=split_point+config_doc["stage_interval"].GetUint())
         {
-            // Do the pre test to determine the end point of stage1 network
-            /*
-            std::vector<float> pre_test_time;
-            for (int post_block_num = 0; post_block_num < extend_max_block; post_block_num++)
-            {
-                int end_point = start_point + post_block_num;
-                bool model_generated = model_generation(model_name, start_point, end_point);
-                if(!model_generated){
-                    std::cout<<"failed to export models"<<endl;
-                    return -1;
-                }
-                Profiler pre_inst = Profiler(config_doc["bs_s1"].GetUint(), 
-                                        config_doc["bs_s2"].GetUint(), 
-                                        config_doc["bs_num"].GetUint(),
-                                        nvinfer1::ILogger::Severity::kERROR);
-                // std::cout << "Here1" << std::endl;
-                pre_inst.build_s1(model_name);
-                // std::cout << "Here2" << std::endl;
-                pre_inst.build_s2(model_name);
-                float pre_test_total_time = 0;
-                // std::cout << "Here3" << std::endl;
-                for (int batch_idx = 0; batch_idx < pre_inst.batch_num_; batch_idx++) 
-                {
-                    std::vector<float> metrics = pre_inst.execute(true, config_doc["test_iter"].GetUint(), batch_idx, 
-                                                    config_doc["copy_method"].GetUint(), false, model_name);
-                    pre_test_total_time += metrics[0];
-                }
-                std::cout << "Average elapsed time: " << pre_test_total_time/batch_num_
-                            << " post_block_num: " + to_string(post_block_num)
-                            << std::endl;
-                // pre_test_time.push_back(pre_test_total_time/pre_inst.batch_num_);
-                pre_test_time.push_back(pre_test_total_time/batch_num_);
-                return 0;
-            }
-            auto shortest_time = std::min_element(std::begin(pre_test_time), std::end(pre_test_time));
-            int opt_post_block_num = std::distance(std::begin(pre_test_time), shortest_time);
-            int end_point = start_point + opt_post_block_num;
-            std::cout << "Opt end_point for start_point " << start_point << " is " << end_point << std::endl;
 
-            */
             bool model_generated = model_generation(model_name, config_doc["begin_point"].GetUint(), split_point);
             if(!model_generated){
                 std::cout<<"failed to export models"<<endl;
@@ -988,7 +1028,7 @@ int main(int argc, char** argv)
             // std::vector<float> avg_elapsed_time_overload;
             int infer_batch_size_s1 = config_doc["bs_s1"].GetUint();
             int batch_interval = config_doc["b_interval"].GetUint();
-            for (int infer_batch_size_s2 = batch_interval; infer_batch_size_s2 <= infer_batch_size_s1;
+            for (int infer_batch_size_s2 = 0; infer_batch_size_s2 <= infer_batch_size_s1;
                      infer_batch_size_s2 = infer_batch_size_s2 + batch_interval)
             {
                 // size_t infer_batch_size_s2 = config_doc["bs_s2"].GetUint() * batch_scale / 4;
@@ -997,12 +1037,6 @@ int main(int argc, char** argv)
                                         nvinfer1::ILogger::Severity::kERROR);
                 inst.build_s1(model_name);
                 inst.build_s2(model_name);
-                // float total_elapsed_time_s1 = 0;
-                // float total_elapsed_time_s2 = 0;
-                // float total_elapsed_time = 0;
-                // float total_elapsed_time_overload = 0;
-                // for (int batch_idx = 0; batch_idx < inst.batch_num_; batch_idx++) 
-                // {
                 std::vector<float> metrics;
                 if (model_name == "bert"){
                     metrics = inst.bert_execute(config_doc["seperate_or_not"].GetBool(),
@@ -1014,29 +1048,17 @@ int main(int argc, char** argv)
                                             config_doc["test_iter"].GetUint(), 0, 
                                             config_doc["copy_method"].GetUint(), false, model_name);                    
                 }
-                    // total_elapsed_time_s1 += metrics[0];
-                    // total_elapsed_time_s2 += metrics[1];
-                    // total_elapsed_time += metrics[2];
-                    // std::vector<float> metrics_overload = inst.infer(config_doc["seperate_or_not"].GetBool(),
-                    //                             config_doc["test_iter"].GetUint(), batch_idx, 
-                    //                             config_doc["copy_method"].GetUint(), true, model_name);
-                    // total_elapsed_time_overload += metrics_overload[2];
-                // }
+
                 std::cout << "Batch size: " << infer_batch_size_s2 << "/" << infer_batch_size_s1 << "  Elapsed time: " << metrics[0]/inst.batch_num_ << std::endl;
                 // avg_elapsed_time_s1.push_back(total_elapsed_time_s1/inst.batch_num_);
                 // avg_elapsed_time_s2.push_back(total_elapsed_time_s2/inst.batch_num_);
                 elapsed_time.push_back(metrics[0]/inst.batch_num_);
-                // avg_elapsed_time_overload.push_back(total_elapsed_time_overload/inst.batch_num_);
-                // std::cout << "Average elapsed time: " << avg_elapsed_time_s1.back() << " + " 
-                //             << avg_elapsed_time_s2.back() << " = " << avg_elapsed_time.back() 
-                //             << " < " << avg_elapsed_time_overload.back()
-                //             << " (" + to_string(config_doc["bs_s1"].GetUint()) + " -> " + to_string(infer_batch_size_s2) + ")"
-                //             << std::endl;
+
             }
             
-            outFile.open("/home/slzhang/projects/ETBA/Inference/src/exit_placement/config_a100_" + model_name + "_" +
-                            to_string(config_doc["bs_s1"].GetUint()) + ".csv", ios::app);
-            outFile << 0 << ',' << split_point << ',';
+            outFile.open("/home/slzhang/projects/ETBA/Inference/src/exit_placement/results/config_v100_" + model_name + "_" +
+                            to_string(config_doc["bs_s1"].GetUint()) + "_l" + to_string(config_doc["begin_point"].GetUint()) + ".csv", ios::app);
+            outFile << config_doc["begin_point"].GetUint() << ',' << split_point << ',';
 
             for (int i = 0; i < elapsed_time.size(); ++i){
                 outFile << elapsed_time.at(i) << ',';
