@@ -1013,7 +1013,7 @@ int main(int argc, char** argv)
     Py_Initialize();
     int extend_max_block = 1;
     if (config_doc["seperate_or_not"].GetBool()){
-        for (int split_point = config_doc["split_point"].GetUint(); split_point < config_doc["termi_point"].GetUint(); split_point=split_point+1)
+        for (int split_point = config_doc["split_point"].GetUint(); split_point < config_doc["termi_point"].GetUint(); split_point=split_point+config_doc["stage_interval"].GetUint())
         {
 
             bool model_generated = model_generation(model_name, config_doc["begin_point"].GetUint(), split_point);

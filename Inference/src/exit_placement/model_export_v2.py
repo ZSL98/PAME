@@ -50,7 +50,7 @@ class construct_net(object):
                                 split_point_s3=self.split_point, 
                                 is_init=True)
             else:
-                return posenet_s2(layers=[3, 4, 23, 3],
+                return posenet_s1(layers=[3, 4, 23, 3],
                                 begin_point=self.begin_point,
                                 split_point_s1=self.split_point, 
                                 split_point_s2=self.split_point, 
@@ -491,4 +491,4 @@ def model_export_func_backup(model_name, split_point_s1, split_point_s2, split_p
 
 
 if __name__ == '__main__':
-    model_export_func('bert', 0, 6)
+    model_export_func('posenet', 19, 3)

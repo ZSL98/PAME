@@ -215,7 +215,7 @@ def model_export_func(model_name, begin_point, split_point, exit_type=False):
         s1_input_names = ["input"]
         s1_output_names = ["output1", "exit_output"]
         torch.onnx.export(s1_model, dummy_input1, 
-                            "/home/slzhang/projects/ETBA/Inference/src/run_engine/models/" + inst.backbone + "_s1.onnx",
+                            "/home/slzhang/projects/ETBA/Inference/src/run_engine/models/" + inst.backbone + "_l[{}, {}].onnx".format(begin_point, begin_point+split_point),
                             input_names=s1_input_names, output_names=s1_output_names,
                             verbose=False,dynamic_axes={
                                         'input': {0: 'batch_size'},
@@ -226,7 +226,7 @@ def model_export_func(model_name, begin_point, split_point, exit_type=False):
         s2_input_names = ["input"]
         s2_output_names = ["final_output"]
         torch.onnx.export(s2_model, dummy_input2,
-                            "/home/slzhang/projects/ETBA/Inference/src/run_engine/models/" + inst.backbone + "_s2.onnx",
+                            "/home/slzhang/projects/ETBA/Inference/src/run_engine/models/" + inst.backbone + "_l[{}, {}].onnx".format(begin_point+split_point, 33),
                         input_names=s2_input_names, output_names=s2_output_names,
                         verbose=False,dynamic_axes={
                                         'input': {0: 'batch_size'},
@@ -279,7 +279,7 @@ def model_export_func(model_name, begin_point, split_point, exit_type=False):
             torch.onnx.export(
                 s1_model,
                 s1_model_args,
-                f="/home/slzhang/projects/ETBA/Inference/src/run_engine/models/" + inst.backbone + "_s1.onnx",
+                f="/home/slzhang/projects/ETBA/Inference/src/run_engine/models/" + inst.backbone + "_l[{}, {}].onnx".format(begin_point, begin_point+split_point),
                 input_names=ordered_input_names,
                 output_names=s1_output_names,
                 dynamic_axes=s1_dynamic_axes,
@@ -298,7 +298,7 @@ def model_export_func(model_name, begin_point, split_point, exit_type=False):
             torch.onnx.export(
                 s1_model,
                 s1_model_args,
-                f="/home/slzhang/projects/ETBA/Inference/src/run_engine/models/" + inst.backbone + "_s1.onnx",
+                f="/home/slzhang/projects/ETBA/Inference/src/run_engine/models/" + inst.backbone + "_l[{}, {}].onnx".format(begin_point, begin_point+split_point),
                 input_names=ordered_input_names[:2],
                 output_names=s1_output_names,
                 dynamic_axes=s1_dynamic_axes,
@@ -316,7 +316,7 @@ def model_export_func(model_name, begin_point, split_point, exit_type=False):
         torch.onnx.export(
             s2_model,
             s2_model_args,
-            f="/home/slzhang/projects/ETBA/Inference/src/run_engine/models/" + inst.backbone + "_s2.onnx",
+            f="/home/slzhang/projects/ETBA/Inference/src/run_engine/models/" + inst.backbone + "_l[{}, {}].onnx".format(begin_point+split_point, 12),
             input_names=ordered_input_names[:2],
             output_names=s2_output_names,
             dynamic_axes=s2_dynamic_axes,
@@ -489,4 +489,4 @@ def model_export_func_backup(model_name, split_point_s1, split_point_s2, split_p
 
 
 if __name__ == '__main__':
-    model_export_func('bert', 6, 9)
+    model_export_func('bert', 0, 1)

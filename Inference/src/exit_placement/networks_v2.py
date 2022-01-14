@@ -501,6 +501,7 @@ class backbone_s1(nn.Module):
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
 
         layers = separate2two(begin_point)
+        print(layers)
         self.s1_pre_layer, self.s1_post_layer, self.s2_layer, self.s3_layer = \
                     model_split(layers, split_point_s1, split_point_s2, split_point_s3)
         c_layer = [3, 4, 23, 3]
@@ -530,14 +531,22 @@ class backbone_s1(nn.Module):
                                        dilate=replace_stride_with_dilation[2], 
                                        start_of_stage=(self.s1_pre_layer[3]==0 & layers[3]==c_layer[3]), layer_idx=3)
 
-        if self.s1_pre_layer[1] == 0:
-            self.exit = self._make_complex_exit(1, stride=2)
-        elif self.s1_pre_layer[2] == 0:
-            self.exit = self._make_complex_exit(2, stride=2)
-        elif self.s1_pre_layer[3] == 0:
-            self.exit = self._make_complex_exit(3, stride=2)
-        else:
-            self.exit = self._make_complex_exit(4, stride=2)
+        exit_length = 0
+        for i in range(len(self.s1_pre_layer)):
+            if self.s1_pre_layer[-(i+1)] == 0:
+                exit_length = exit_length + 1
+            else:
+                break
+        self.exit = self._make_complex_exit(4-exit_length, stride=2)
+
+        # if self.s1_pre_layer[1] == 0:
+        #     self.exit = self._make_complex_exit(1, stride=2)
+        # elif self.s1_pre_layer[2] == 0:
+        #     self.exit = self._make_complex_exit(2, stride=2)
+        # elif self.s1_pre_layer[3] == 0:
+        #     self.exit = self._make_complex_exit(3, stride=2)
+        # else:
+        #     self.exit = self._make_complex_exit(4, stride=2)
 
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
