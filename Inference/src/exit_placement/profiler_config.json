@@ -1,15 +1,15 @@
 {
-    "bs_s1": 64,
-    "bs_s2": 64,
+    "bs_s1": 2,
+    "bs_s2": 2,
     "b_interval": 4,
     "log_lvl": "INFO",
-    "bs_num": 100,
+    "bs_num": 200,
     "test_iter": 1,
     "copy_method": 0,
-    "seperate_or_not": true,
+    "seperate_or_not": false,
     "begin_point": 0,
     "split_point": 1,
     "termi_point": 33,
     "fp16": false,
-    "stage_interval": 3
+    "stage_interval": 1
   }

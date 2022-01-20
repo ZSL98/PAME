@@ -491,4 +491,4 @@ def model_export_func_backup(model_name, split_point_s1, split_point_s2, split_p
 
 
 if __name__ == '__main__':
-    model_export_func('posenet', 19, 3)
+    model_export_func('openseg', 0, 25)

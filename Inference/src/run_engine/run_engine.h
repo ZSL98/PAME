@@ -73,6 +73,7 @@ private:
     std::vector<cudaEvent_t> batch_start;
     std::vector<cudaEvent_t> batch_end;
     std::vector<cudaEvent_t> batch_exit;
+    std::vector<cudaEvent_t> batch_exit_2;
     cudaEvent_t check_start;
     cudaEvent_t check_end;
     std::vector<nvinfer1::Dims> input_dims;
