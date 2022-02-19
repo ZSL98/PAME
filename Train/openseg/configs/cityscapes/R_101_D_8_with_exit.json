@@ -10,7 +10,7 @@
       "workers": 8
     },
    "train": {
-      "batch_size": 8,
+      "batch_size": 1,
       "data_transformer": {
         "size_mode": "fix_size",
         "input_size": [1024, 512],
@@ -19,7 +19,7 @@
       }
     },
     "val": {
-      "batch_size": 4,
+      "batch_size": 1,
       "mode": "ss_test",
       "data_transformer": {
         "size_mode": "fix_size",
@@ -97,7 +97,7 @@
       "rewrite": true
     },
     "lr": {
-      "base_lr": 0.01,
+      "base_lr": 0.001,
       "bb_mult": 0,
       "nbb_mult": 1,
       "metric": "iters",

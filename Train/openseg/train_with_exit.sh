@@ -20,6 +20,7 @@ LOG_FILE="./log/cityscapes/${CHECKPOINTS_NAME}.log"
 PRETRAINED_MODEL="./pretrained_model/resnet101-imagenet.pth"
 
 MAX_ITERS=40000
+# BACKBONE="resnet101_with_only_exit"
 BACKBONE="resnet101_with_only_exit"
 MODEL_NAME="spatial_ocrnet_with_multi_exit"
 LOSS_TYPE="fs_auxce_loss_with_multi_exit"
@@ -43,7 +44,7 @@ python -u main.py --configs ${CONFIGS} \
                     --checkpoints_name ${CHECKPOINTS_NAME} \
                     --pretrained ${PRETRAINED_MODEL} \
                     --distributed \
-                    --split_point 777 \
+                    --split_point 888 \
                     2>&1 | tee ${LOG_FILE}
 
 # for i in 10 13

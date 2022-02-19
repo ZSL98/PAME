@@ -35,7 +35,8 @@ import torchvision.datasets as torchvision_datasets
 ################### Import packages for openseg ###################
 ###################################################################
 # SpatialOCRNet_with_exit has dual-heads, while SpatialOCRNet_with_only_exit has only one exit
-from openseg.lib.models.nets.ocrnet_with_exit import SpatialOCRNet_with_only_exit, SpatialOCRNet_with_exit
+from openseg.lib.models.nets.ocrnet_with_exit import SpatialOCRNet_with_only_exit, SpatialOCRNet_with_exit, SpatialOCRNet_with_multi_exit
+from openseg.lib.models.nets.ocrnet import SpatialOCRNet
 from openseg.lib.utils.tools.configer import Configer
 from openseg.lib.datasets.data_loader import DataLoader
 from openseg.lib.metrics import running_score as rslib
@@ -338,9 +339,15 @@ class convert_resnet:
                 res.append(correct_f_k.mul_(100.0 / batch_size))            
 
             res.append(pass_acc)
-            res.append(pass_cnt/sum(last_moveon_list))
+            if sum(last_moveon_list) == 0:
+                res.append(sum(last_moveon_list))
+            else:
+                res.append(pass_cnt/sum(last_moveon_list))
             res.append(moveon_acc)
-            res.append(moveon_cnt/sum(last_moveon_list))
+            if sum(last_moveon_list) == 0:
+                res.append(sum(last_moveon_list))
+            else:
+                res.append(moveon_cnt/sum(last_moveon_list))
             res.append(moveon_indicator)
             return res
 
@@ -654,6 +661,30 @@ class convert_openseg:
         self.metric_thres = metric_thres
         self.final_profile = final_profile
 
+    def load_final_openseg(self):
+        final_model = torch.load("/home/slzhang/projects/ETBA/Train/openseg/checkpoints/cityscapes_finetuned_new/split_point_888/ocrnet_resnet101_s888_max_performance.pth")
+        # final_model = torch.load("/home/slzhang/projects/ETBA/Train/openseg/checkpoints/cityscapes_finetuned_new/split_point_888/ocrnet_resnet101_s888_iters6000.pth")
+        config = Configer(configs="/home/slzhang/projects/ETBA/Train/openseg/configs/cityscapes/R_101_D_8_with_exit.json")
+        net_wth_multi_heads = SpatialOCRNet_with_multi_exit(config)
+
+        dict_multihead = OrderedDict()
+        for k,v in net_wth_multi_heads.state_dict().items():
+            dict_multihead[k] = final_model['state_dict']['module.'+k]
+
+        net_wth_multi_heads.load_state_dict(dict_multihead)
+
+        net_wth_finalhead = SpatialOCRNet(config)
+        dict_finalhead = torch.load("/home/slzhang/projects/ETBA/Train/openseg/checkpoints/spatial_ocrnet_deepbase_resnet101_dilated8_1_latest.pth")
+        dict_finalhead_new = OrderedDict()
+        for k,v in net_wth_finalhead.state_dict().items():
+            if 'num_batches_tracked' not in k:
+                dict_finalhead_new[k] = dict_finalhead['state_dict']['module.'+k]
+            
+        net_wth_finalhead.load_state_dict(dict_finalhead_new)
+
+        return net_wth_multi_heads, net_wth_finalhead
+
+
     def load_openseg(self):
         # load the backbone of the network with dual-heads
 
@@ -700,7 +731,13 @@ class convert_openseg:
         net_wth_dualheads.load_state_dict(dict_dualhead)
         return net_wth_dualheads
 
-    def eval_openseg(self, net):
+    def eval_openseg(self):
+        if not self.final_profile:
+            net = self.load_openseg()
+        else:
+            net, net_with_finalhead = self.load_final_openseg()
+            # net_with_finalhead = net_with_finalhead.cuda()
+            # net_with_finalhead.eval()
         net = net.cuda()
         net.eval()
         config = Configer(configs="/home/slzhang/projects/ETBA/Train/openseg/configs/cityscapes/R_101_D_8_with_exit.json")
@@ -744,7 +781,14 @@ class convert_openseg:
                 last_moveon_dict[str(i)] = [1]*len(targets)
 
             with torch.no_grad():
-                outputs = net(*inputs)
+                if not self.final_profile:
+                    outputs = net(*inputs)
+                else:
+                    outputs_1 = net(*inputs)
+                    # outputs_2 = net_with_finalhead(*inputs)
+                    exit_place = int((self.split_point-10)/3)
+                    outputs = [outputs_1[exit_place][0], outputs_1[exit_place][1], outputs_1[-1][0], outputs_1[-1][1]]
+                    # outputs = outputs[]
                 if isinstance(outputs, torch.Tensor):
                     outputs = [outputs]
                 metas = data_dict["meta"]
@@ -1510,7 +1554,7 @@ def grid_search(task_name, split_point, batch_size, init=True, metric_thres=98, 
     if task_name == 'resnet':
 
         if init == True:
-            print('Grid searcing for resnet...')
+            print('Grid searching for resnet...')
             inst = convert_resnet(split_point=split_point, batch_size=batch_size, last_exit=last_exit, metric_thres=metric_thres, dataset_used=dataset, final_profile=all_or_sep)
             if all_or_sep == False:
                 net_wth_eehead, net_wth_finalhead = inst.load_resnet()
@@ -1579,12 +1623,11 @@ def grid_search(task_name, split_point, batch_size, init=True, metric_thres=98, 
         if init == True:
             print('Grid searcing for openseg...')
             inst = convert_openseg(split_point=split_point, batch_size=batch_size, last_exit=last_exit, metric_thres=metric_thres, final_profile=all_or_sep)
-            net = inst.load_openseg()
             for p_thres in np.arange(6, 10, 1):
                 for n_thres in [500000, 700000, 900000, 1100000]:
                     inst.p_thres = p_thres
                     inst.n_thres = n_thres
-                    metric_eehead, metric_finalhead, moveon_ratio, metric_avg = inst.eval_openseg(net)
+                    metric_eehead, metric_finalhead, moveon_ratio, metric_avg = inst.eval_openseg()
                     wandb.log({'split_point':split_point, 'p_thres':p_thres, 'n_thres': n_thres, 'moveon_ratio':moveon_ratio, 'metric_avg':metric_avg})
                     exit_sequence = last_exit+[split_point]
                     print('p_thres: ' + str(p_thres) + '  n_thres: ' + str(n_thres) + '  moveon_ratio: ' + str(moveon_ratio) +'  metric_avg: ' + str(metric_avg))
@@ -1644,8 +1687,8 @@ if __name__ == '__main__':
     # inst.eval_resnet(net_wth_eehead, net_wth_finalhead)
     # exit()
     metric_list = {
-    'imagenet_ori':     77.34,
-    'imagenet':         77.56,
+    'imagenet':         77.34,
+    'imagenet_new':     77.56,
     'imagewoof':        88.547,
     'imagenette':       90.29,
     'mrpc':             83.58,
@@ -1655,16 +1698,16 @@ if __name__ == '__main__':
     'cola':             82.55,
     'posenet_ori':      0.8982,
     'posenet':          0.90017,
-    'openseg':          0.77058,
+    'openseg':          0.7963, # 0.77058,
     }
 
-    task = 'resnet'
-    dataset_name = 'imagenette'
+    task = 'openseg'
+    dataset_name = 'openseg'
     mode = 'test'
-    metric_thres = 99
-    init = True
-    batch_size = 32
-    last_exit = [0, 16]
+    metric_thres = 99.5
+    init = False
+    batch_size = 4
+    last_exit = [0]
     exit_num = len(last_exit)
     all_or_sep = True
     all_or_sep_name = 'all' if all_or_sep else 'sep'
@@ -1695,6 +1738,7 @@ if __name__ == '__main__':
                 print(mvon_ratio)
                 best_metric = (best_metric - last_metric*(1-mvon_ratio))/mvon_ratio
                 print(best_metric)
+        best_metric = best_metric/(0.01*metric_thres)
 
     if init:
         wandb.init(
@@ -1705,9 +1749,12 @@ if __name__ == '__main__':
 
     if mode == 'test':
         if task == 'resnet':
-            for split_point in [1,4,7,10,13,16,19,22,25,28,31]:
+            for split_point in range(last_exit[-1]+1, 33, 3):
                 opt_p_thres = grid_search(task, split_point, batch_size, init=init, metric_thres=metric_thres, best_metric=best_metric, last_exit=last_exit, dataset=dataset_name, all_or_sep=all_or_sep)
-                # opt_p_thres = 0.75
+                # p_thres_imagenet = {1:0.65, 4:0.65, 7:0.65, 10:0.6, 13:0.55, 16:0.5, 19:0.45, 22:0.3, 25:0.15, 28:0.05, 31:0.05}
+                # p_thres_imagenette = {1:0.7, 4:0.7, 7:0.7, 10:0.7, 13:0.7, 16:0.6, 19:0.55, 22:0.5, 25:0.45, 28:0.3, 31:0.05}
+                # p_thres_imagewoof = {1:0.7, 4:0.65, 7:0.65, 10:0.65, 13:0.6, 16:0.6, 19:0.55, 22:0.55, 25:0.55, 28:0.45, 31:0.05}
+                # opt_p_thres = p_thres_imagenette[split_point]
                 inst = convert_resnet(split_point=split_point, batch_size=batch_size, last_exit=last_exit, metric_thres=metric_thres, dataset_used=dataset_name, final_profile=all_or_sep)
                 inst.p_thres = opt_p_thres
 
@@ -1723,7 +1770,7 @@ if __name__ == '__main__':
                     writer.writerow([last_exit+[split_point], metric_thres, batch_size, opt_p_thres, a, b, c, d])
 
         elif task == 'posenet':
-            for split_point in [1,4,7,10,13,16,19,22,25,28,31]:
+            for split_point in range(last_exit[-1]+1, 33, 3):
                 opt_p_thres, opt_n_thres = grid_search(task, split_point, batch_size, init=init, metric_thres=metric_thres, last_exit=last_exit, best_metric=best_metric, all_or_sep=all_or_sep)
                 inst = convert_posenet(split_point=split_point, batch_size=batch_size, last_exit=last_exit, metric_thres=metric_thres, final_profile=all_or_sep)
                 inst.p_thres = opt_p_thres
@@ -1735,12 +1782,11 @@ if __name__ == '__main__':
 
         elif task == 'openseg':
             for split_point in [10,13,16,19,22,25,28]:
-                opt_p_thres, opt_n_thres = grid_search(task, split_point, batch_size, init=init, metric_thres=metric_thres, best_metric=best_metric, all_or_sep=all_or_sep)
+                opt_p_thres, opt_n_thres = grid_search(task, split_point, batch_size, init=init, metric_thres=metric_thres, last_exit=last_exit, best_metric=best_metric, all_or_sep=all_or_sep)
                 inst = convert_openseg(split_point=split_point, batch_size=batch_size, last_exit=last_exit, metric_thres=metric_thres, final_profile=all_or_sep)
                 inst.p_thres = opt_p_thres
                 inst.n_thres = opt_n_thres
-                net = inst.load_openseg()
-                a,b,c,d = inst.eval_openseg(net)
+                a,b,c,d = inst.eval_openseg()
                 with open('/home/slzhang/projects/ETBA/Train/opt_thres_record/openseg_train{}.csv'.format('all' if all_or_sep else 'sep'), 'a+') as f:
                     writer = csv.writer(f)
                     writer.writerow([last_exit+[split_point], metric_thres, batch_size, opt_p_thres, opt_n_thres, a, b, c, d])

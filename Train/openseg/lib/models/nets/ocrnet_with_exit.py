@@ -111,7 +111,6 @@ class SpatialOCRNet_with_only_exit(nn.Module):
 
         return  x1_dsn, x1
 
-# TODO: Class below NOT finished yet
 class SpatialOCRNet_with_multi_exit(nn.Module):
     def __init__(self, configer):
         super(SpatialOCRNet_with_multi_exit, self).__init__()

@@ -60,18 +60,18 @@ def _input_constructor(input_shape, tokenizer):
 with torch.cuda.device(0):
     # model = BertForSequenceClassification.from_pretrained('bert-base-uncased')
     # tok = BertTokenizer.from_pretrained('bert-base-uncased')
-    # macs, params = get_model_complexity_info(model, (1, 7), as_strings=True, input_constructor=partial(_input_constructor, tokenizer=tok),
+    # macs, params = get_model_complexity_info(model, (1, 2), as_strings=True, input_constructor=partial(_input_constructor, tokenizer=tok),
     #                                         print_per_layer_stat=True, verbose=True)
 
-    # model = SpatialOCRNet()
+    model = SpatialOCRNet()
     # model = PoseResNet()
-    # model = models.resnet18(pretrained=True)
-    model = resnet_s1(start_point=8, end_point=8, simple_exit=False)
+    # model = models.resnet101(pretrained=True)
+    # model = resnet_s1(start_point=8, end_point=8, simple_exit=False)
     macs, params = get_model_complexity_info(model, (3, 224, 224), as_strings=True,
                                             print_per_layer_stat=True, verbose=True)
 
     # model = Wav2Vec2ForCTC.from_pretrained('facebook/wav2vec2-base-960h')
-    # macs, params = get_model_complexity_info(model, (10000,), as_strings=True,
+    # macs, params = get_model_complexity_info(model, (20000,), as_strings=True,
     #                                         print_per_layer_stat=True, verbose=True)
 
     print('{:<30}  {:<8}'.format('Computational complexity: ', macs))
