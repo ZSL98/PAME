@@ -34,7 +34,17 @@ Build the task project
     cmake ..
     make -j$(nproc)
 
-## imagenet classfication
+## Train exits with transfer learning
+
+### Imagenet classfication
+
+    cd ./Train/Mytrain
+    python train_imagenet.py
+
+To accelerate the training process, we utilize [Nvidia's deeplearning examples](https://github.com/NVIDIA/DeepLearningExamples/tree/master/PyTorch/Classification/ConvNets) and modify the codes within.
+
+    
+
 
 slzhang @ (fedml) in ~/projects/ETBA/Train/Mytrain on git:main x [22:34:28] C:1
 $ python train_imagenet.py
