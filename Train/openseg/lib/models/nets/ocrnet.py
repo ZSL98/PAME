@@ -13,6 +13,8 @@ import torch.nn as nn
 from torch.nn import functional as F
 
 from lib.models.backbones.backbone_selector import BackboneSelector
+from lib.models.backbones.resnet.resnet_backbone import DilatedResnetBackbone
+from lib.models.backbones.resnet.resnet_models import ResNet, Bottleneck
 from lib.models.tools.module_helper import ModuleHelper
 
 
@@ -27,7 +29,17 @@ class SpatialOCRNet(nn.Module):
         super(SpatialOCRNet, self).__init__()
         self.configer = configer
         self.num_classes = self.configer.get("data", "num_classes")
-        self.backbone = BackboneSelector(configer).get_backbone()
+        # self.backbone = BackboneSelector(configer).get_backbone()
+        multi_grid = self.configer.get("network", "multi_grid")
+        orig_resnet = ResNet(
+            Bottleneck,
+            [3, 4, 23, 3],
+            deep_base=True,
+            bn_type=self.configer.get("network", "bn_type")
+        )
+        self.backbone = DilatedResnetBackbone(
+                orig_resnet, dilate_scale=8, multi_grid=multi_grid
+            )
 
         # extra added layers
         if "wide_resnet38" in self.configer.get("network", "backbone"):
