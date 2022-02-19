@@ -1,0 +1,3 @@
+[submodule "Train-Nvidia"]
+	path = Train-Nvidia
+	url = https://github.com/ZSL98/Train-Nvidia
