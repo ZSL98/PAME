@@ -11,7 +11,7 @@
     "split_point": 1,
     "termi_point": 34,
     "fp16": false,
-    "moveon_dict_path_1": "/home/slzhang/projects/ETBA/Train/moveon_dict/posenet/posenet_trainall_l[0, 19]_b32_t99.json",
+    "moveon_dict_path_1": "/home/slzhang/projects/ETBA/Train/moveon_dict/rte/rte_exit_l[0, 5]_b16_t99.json",
     "moveon_dict_path_2": "/home/slzhang/projects/ETBA/Train/moveon_dict/bert/qnli/qnli_exit_l[0, 6, 8]_b16_t99.json",
     "stage_num": 2,
     "model_1": "posenet_l[0, 19]",

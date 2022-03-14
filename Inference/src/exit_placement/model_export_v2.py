@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 from networks_v2 import resnet_s1, resnet_s2, posenet_s1, posenet_s2, backbone_s2, backbone_s3, backbone_init
 from transformers import Wav2Vec2FeatureExtractor, Wav2Vec2Processor, Wav2Vec2CTCTokenizer
+from swin_transformer import SwinTransformer_s1, SwinTransformer_s2
 from wav2vec2_model import Wav2Vec2_with_exit_s1, Wav2Vec2_with_exit_s2, Wav2Vec2_with_dual_exit
 from modeling_bert import BertWithExit_s1, BertWithExit_s2, BertWithDualExit
 from ocrnet_with_exit import SpatialOCRNet_s1, SpatialOCRNet_s2, SpatialOCRNet
@@ -94,6 +95,9 @@ class construct_net(object):
         elif self.backbone == 'openseg':
             return SpatialOCRNet_s1(self.split_point)
 
+        elif self.backbone == 'swin':
+            return SwinTransformer_s1(split_point=self.split_point)
+
     def construct_net_s2(self):
         if self.backbone == 'resnet':
             return resnet_s2(layers=[3, 4, 23, 3],
@@ -127,8 +131,12 @@ class construct_net(object):
             )
             model_CTC.add_exit(end_point=self.begin_point+self.split_point)
             return model_CTC
+
         elif self.backbone == 'openseg':
             return SpatialOCRNet_s2(self.split_point)
+
+        elif self.backbone == 'swin':
+            return SwinTransformer_s2(split_point=self.split_point)
 
     def construct_net_s3(self):
         if self.backbone == 'resnet' or self.backbone == 'posenet':
@@ -167,6 +175,8 @@ def model_export_func(model_name, begin_point, split_point, exit_type=False):
         dummy_input1 = torch.randn(1, 10000)
         if begin_point != 0:
             dummy_input1 = torch.randn(1, 31, 768)
+    elif inst.backbone == "swin":
+        dummy_input1 = torch.randn(1, 3, 224, 224)
 
     s1_model = inst.construct_net_s1()
     s1_model.eval()
@@ -184,6 +194,10 @@ def model_export_func(model_name, begin_point, split_point, exit_type=False):
         dummy_input2 = torch.randn(1, 1024, 129, 257)
         # dummy_input2 = torch.randn(1, 1024, 48, 48)
         # print(x_moveon.shape)
+    elif inst.backbone == "swin":
+        dummy_input2 = s1_model(dummy_input1)
+        print(dummy_input2[0].shape)
+        dummy_input2 = dummy_input2[0]
 
     s2_model = inst.construct_net_s2()
     s2_model.eval()
@@ -213,7 +227,7 @@ def model_export_func(model_name, begin_point, split_point, exit_type=False):
     # print(dummy_input1.shape)
     # print(dummy_input2.shape)
 
-    if inst.backbone == "resnet" or inst.backbone == "posenet" or inst.backbone == "Wav2Vec2":
+    if inst.backbone == "resnet" or inst.backbone == "posenet" or inst.backbone == "Wav2Vec2" or inst.backbone == "swin":
         s1_input_names = ["input"]
         s1_output_names = ["output1", "exit_output"]
         torch.onnx.export(s1_model, dummy_input1, 
@@ -491,4 +505,5 @@ def model_export_func_backup(model_name, split_point_s1, split_point_s2, split_p
 
 
 if __name__ == '__main__':
-    model_export_func('openseg', 0, 25)
+    model_export_func('swin', 0, 25)
+    print('Done!')

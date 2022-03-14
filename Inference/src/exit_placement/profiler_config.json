@@ -6,7 +6,7 @@
     "bs_num": 200,
     "test_iter": 1,
     "copy_method": 0,
-    "seperate_or_not": false,
+    "seperate_or_not": true,
     "begin_point": 0,
     "split_point": 1,
     "termi_point": 33,
