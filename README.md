@@ -36,20 +36,36 @@ Build the task project
 
 ## Train exits with transfer learning
 
-### Imagenet classfication
+### ImageNet classfication
+
+First prepare the dataset in the dataset directory `<path to imagenet>`, which contains the `train` directory and the `val` directory. To accelerate the training process, we utilize [Nvidia's deeplearning examples](https://github.com/NVIDIA/DeepLearningExamples/tree/master/PyTorch/Classification/ConvNets) and modify the codes within.
+
+    cd ./Train-Nvidia
+    mkdir checkpoints
+    python ./main.py <path to imagenet>
+
+The model checkpoints would be stored in the `checkpoint` directory. One can also train without Nvidia GPUs by running the following commands.
 
     cd ./Train/Mytrain
+    mkdir checkpoints
     python train_imagenet.py
 
-To accelerate the training process, we utilize [Nvidia's deeplearning examples](https://github.com/NVIDIA/DeepLearningExamples/tree/master/PyTorch/Classification/ConvNets) and modify the codes within.
+### Pose Estimation
 
+    cd ./pose_estimation
+    mkdir checkpoints
+    python pose_estimation/train_exit.py --cfg ./experiments/mpii/resnet101/384x384_d256x3_adam_lr1e-3.yaml
     
+### Semantic Segmentation
+
+    cd ./openseg
+    bash ./train_with_exit.sh
+
+### Language Models
+
+    cd bert
+    bash ./scripts/train_glue.sh
+
+## Precision-aware Candidate Configuration
 
 
-slzhang @ (fedml) in ~/projects/ETBA/Train/Mytrain on git:main x [22:34:28] C:1
-$ python train_imagenet.py
-
-## posenet training
-
-slzhang @ (fedml) in ~/projects/ETBA/Train/human-pose-estimation.pytorch on git:main x [22:59:32] 
-$ python pose_estimation/train_exit.py --cfg ./experiments/mpii/resnet101/384x384_d256x3_adam_lr1e-3.yaml 

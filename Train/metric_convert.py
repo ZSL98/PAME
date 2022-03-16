@@ -115,6 +115,20 @@ logger = logging.getLogger(__name__)
 # Then I realized there is no need to do the load_state_dict, \
 # so I simply use net_wth_eehead and net_wth_finalhead to convert metrics.
 
+def parse_args():
+    parser = argparse.ArgumentParser(description='Metric Converter')
+    parser.add_argument('--task', type=str, default='cola', help='Task name')
+    parser.add_argument('--dataset_name', type=str, default='cola', help='Dataset name')
+    parser.add_argument('--mode', type=str, default='test', help='Converter mode')
+    parser.add_argument('--metric_thres', type=float, default=99.5, help='Metric threshold')
+    parser.add_argument('--init', type=bool, default=False, help='Determine the threshold or not')
+    parser.add_argument('--batch_size', type=int, default=4, help='Batch size')
+    parser.add_argument('--last_exit', type=int, nargs='+', help='Last exit')
+    parser.add_argument('--all_or_sep', type=bool, default=False, help='All or Separate')
+
+    args = parser.parse_args()
+    return args
+
 class convert_resnet:
     def __init__(self, split_point, batch_size, last_exit, metric_thres, dataset_used, final_profile=False) -> None:
         super().__init__()
@@ -1701,15 +1715,18 @@ if __name__ == '__main__':
     'openseg':          0.7963, # 0.77058,
     }
 
-    task = 'openseg'
-    dataset_name = 'openseg'
-    mode = 'test'
-    metric_thres = 99.5
-    init = False
-    batch_size = 4
-    last_exit = [0]
+    args = parse_args()
+
+    task = args.task
+    dataset_name = args.dataset_name
+    mode = args.mode
+    metric_thres = args.metric_thres
+    init = args.init
+    batch_size = args.batch_size
+    last_exit = args.last_exit
+    all_or_sep = args.all_or_sep
+    
     exit_num = len(last_exit)
-    all_or_sep = True
     all_or_sep_name = 'all' if all_or_sep else 'sep'
 
     task_metric = metric_list[dataset_name]
