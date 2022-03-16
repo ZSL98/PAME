@@ -52,20 +52,30 @@ The model checkpoints would be stored in the `checkpoint` directory. One can als
 
 ### Pose Estimation
 
-    cd ./pose_estimation
+    cd ./Train/pose_estimation
     mkdir checkpoints
     python pose_estimation/train_exit.py --cfg ./experiments/mpii/resnet101/384x384_d256x3_adam_lr1e-3.yaml
     
 ### Semantic Segmentation
 
-    cd ./openseg
+    cd ./Train/openseg
     bash ./train_with_exit.sh
 
 ### Language Models
 
-    cd bert
+    cd ./Train/bert
     bash ./scripts/train_glue.sh
 
 ## Precision-aware Candidate Configuration
+
+## Obtain the Inference Time Matrix
+
+    cd ./Inference/src/exit_placement
+    mkdir build && cd build
+    cmake ..
+    make -j
+
+Edit the configuration file `profiler_config.json`, and run `./out/sample <task_name>` to obtain the Inference Time Matrix which is stored at `./results`. For example, to get the Inference Time Matrix of ResNet in image classification, just run `./out/sample resnet`
+
 
 
