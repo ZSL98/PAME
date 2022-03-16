@@ -973,6 +973,7 @@ bool model_generation(std::string model_name, const int start_point, const int e
 		cout <<"module not found" << endl;
 		return 1;
 	}
+    std::cout << "module found" << std::endl;
 	PyObject* pFunc = PyObject_GetAttrString(pModule, "model_export_func");
 	if( !pFunc || !PyCallable_Check(pFunc)){
 		cout <<"not found function model_export_func" << endl;

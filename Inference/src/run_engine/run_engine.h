@@ -70,8 +70,14 @@ private:
     cudaEvent_t infer_start;
     cudaEvent_t s1_end;
     cudaEvent_t s2_end;
-    std::vector<cudaEvent_t> query_start;
-    std::vector<cudaEvent_t> query_end;
+    std::vector<cudaEvent_t> batch_start;
+    std::vector<cudaEvent_t> batch_end;
+    std::vector<cudaEvent_t> batch_exit;
+    std::vector<cudaEvent_t> batch_exit_2;
+
+    std::vector<cudaEvent_t> tmp_event_1;
+    std::vector<cudaEvent_t> tmp_event_2;
+
     cudaEvent_t check_start;
     cudaEvent_t check_end;
     std::vector<nvinfer1::Dims> input_dims;

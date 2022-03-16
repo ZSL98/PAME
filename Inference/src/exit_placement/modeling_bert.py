@@ -1764,7 +1764,7 @@ class BertWithDualExit(BertPreTrainedModel):
         )
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
-        input_shape = torch.Size([1, 7])
+        input_shape = torch.Size([1, 64])
         device = input_ids.device if input_ids is not None else inputs_embeds.device
         extended_attention_mask: torch.Tensor = self.get_extended_attention_mask(attention_mask, input_shape, device)
         s2_outputs = self.bert_s2(
@@ -1836,7 +1836,7 @@ class BertWithExit_s2(BertPreTrainedModel):
         )
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
-        input_shape = torch.Size([1, 7])
+        input_shape = torch.Size([1, 64])
         device = input_ids.device if input_ids is not None else inputs_embeds.device
         extended_attention_mask: torch.Tensor = self.get_extended_attention_mask(attention_mask, input_shape, device)
         s2_outputs = self.bert_s2(

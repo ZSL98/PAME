@@ -17,6 +17,7 @@ const size_t& batch_size_s1, const size_t& batch_size_s2,
     // cudaStreamCreate(&(stream_1));
     // cudaStreamCreate(&(stream_2));
     CUDACHECK(cudaEventCreate(&infer_start));
+<<<<<<< HEAD
     std::vector<cudaEvent_t> query_start_copy(batch_num_);
     std::vector<cudaEvent_t> query_end_copy(batch_num_);
     query_start = query_start_copy;
@@ -25,6 +26,33 @@ const size_t& batch_size_s1, const size_t& batch_size_s2,
     {
         CUDACHECK(cudaEventCreate(&query_start[i]));
         CUDACHECK(cudaEventCreate(&query_end[i]));
+=======
+    std::vector<cudaEvent_t> batch_start_copy(batch_num_);
+    std::vector<cudaEvent_t> batch_end_copy(batch_num_);
+    std::vector<cudaEvent_t> batch_exit_copy(batch_num_);
+    std::vector<cudaEvent_t> batch_exit_2_copy(batch_num_);
+
+    std::vector<cudaEvent_t> tmp_event_1_copy(batch_num_);
+    std::vector<cudaEvent_t> tmp_event_2_copy(batch_num_);
+
+    batch_start = batch_start_copy;
+    batch_end = batch_end_copy;
+    batch_exit = batch_exit_copy;
+    batch_exit_2 = batch_exit_2_copy;
+
+    tmp_event_1 = tmp_event_1_copy;
+    tmp_event_2 = tmp_event_2_copy;
+
+    for (size_t i = 0; i < batch_num_; i++)
+    {
+        CUDACHECK(cudaEventCreate(&batch_start[i]));
+        CUDACHECK(cudaEventCreate(&batch_end[i]));
+        CUDACHECK(cudaEventCreate(&batch_exit[i]));
+        CUDACHECK(cudaEventCreate(&batch_exit_2[i]));
+
+        CUDACHECK(cudaEventCreate(&tmp_event_1[i]));
+        CUDACHECK(cudaEventCreate(&tmp_event_2[i]));
+>>>>>>> origin/v100
     }
     
     CUDACHECK(cudaEventCreate(&s1_end));
@@ -220,7 +248,12 @@ std::vector<int> generate_copy_list(std::string movon_dict_path, int batch_size)
                 record_batch_size.push_back(0);
                 idx += 1;
             }
+<<<<<<< HEAD
             record_batch_size[idx] += array[i].GetBool();
+=======
+            // record_batch_size[idx] += array[i].GetBool();
+            record_batch_size[idx] += array[i].GetUint();
+>>>>>>> origin/v100
             total_cnt += 1;
             
         }
@@ -233,86 +266,149 @@ std::vector<float> Profiler::bert_execute(const bool separate_or_not, const size
 {
     float elapsed_time = 0;
     std::vector<float> metrics;
-    if (separate_or_not) {
+    size_t sequence_length = 64;
 
+<<<<<<< HEAD
         size_t sequence_length = 64;
+=======
+    // Generate fake copy list on the CPU side and copy to the GPU
+    int next_batch_size = batch_size_s1_;
+    int next_batch_size_1 = batch_size_s1_;
+    int *fake_copy_list;
+    cudaMalloc(&fake_copy_list, (int) next_batch_size*sizeof(int));
+    std::vector<int> full_copy_list;
+    for(int i = 0; i < batch_size_s1_; ++i)
+    {
+        full_copy_list.push_back(i);
+    }
+    random_shuffle(full_copy_list.begin(), full_copy_list.end());
+    int fake_copy_list_host[next_batch_size];
+    for(int i = 0; i < next_batch_size ; ++i){
+        fake_copy_list_host[i] = full_copy_list[i];
+    }
+    cudaMemcpy(fake_copy_list, fake_copy_list_host, (int) next_batch_size*sizeof(int), cudaMemcpyHostToDevice);
+>>>>>>> origin/v100
 
-        if (begin_point_ == 0) {
-            input_dims_s1.d[0] = batch_size_s1_;
-            input_dims_s1.d[1] = sequence_length;
-            mContext_s1->setBindingDimensions(0, input_dims_s1);
-            mContext_s1->setBindingDimensions(1, input_dims_s1);
-            mContext_s1->setBindingDimensions(2, input_dims_s1);
-        }
-        else {
-            input_dims_s2_0.d[0] = batch_size_s1_;
-            input_dims_s2_1.d[0] = batch_size_s1_;
-            input_dims_s2_0.d[1] = sequence_length;
-            input_dims_s2_1.d[1] = sequence_length;
-            mContext_s1->setBindingDimensions(0, input_dims_s2_0);
-            mContext_s1->setBindingDimensions(1, input_dims_s2_1);
-        }
+    input_dims_s1.d[0] = batch_size_s1_;
+    input_dims_s1.d[1] = sequence_length;
+    input_dims_s2_0.d[0] = next_batch_size;
+    input_dims_s2_1.d[0] = next_batch_size;
+    input_dims_s2_0.d[1] = sequence_length;
+    input_dims_s2_1.d[1] = sequence_length;
 
-        samplesCommon::BertBufferManager buffer_s1(mEngine_list[3], batch_size_s1_);
-        buffer_s1.copyInputToDeviceAsync(stream_1);
-        auto status_s1 = mContext_s1->enqueueV2(buffer_s1.getDeviceBindings().data(), stream_1, nullptr);
+    /* Engine1 Initilaize */
+    int engine_idx_1 = 3;
+    std::cout << "Initializing engine1." << std::endl;
+    mContext_list[engine_idx_1]->setBindingDimensions(0, input_dims_s1);
+    mContext_list[engine_idx_1]->setBindingDimensions(1, input_dims_s1);
+    mContext_list[engine_idx_1]->setBindingDimensions(2, input_dims_s1);
+    samplesCommon::BertBufferManager buffer_s1(mEngine_list[engine_idx_1], batch_size_s1_);
+    // Initialize buffer_s2
+    buffer_s1.copyInputToDeviceAsync(stream_1);
+    auto status_s1 = mContext_list[engine_idx_1]->enqueueV2(buffer_s1.getDeviceBindings().data(), stream_1, nullptr);
+    if (!status_s1) {
+        std::cout << "Error when inferring S1 model" << std::endl;
+    }
+    // Max_reduction
+    std::shared_ptr<samplesCommon::BertManagedBuffer> exitPtr;
+    exitPtr = buffer_s1.getImmediateBuffer(4);
+    float* exitPtr_device = static_cast<float*>(exitPtr->deviceBuffer.data());
+    int *copy_list;
+    int size = (int) batch_size_s1_*sizeof(int);
+    cudaMalloc(&copy_list, size);
+    max_reduction_r(exitPtr_device, copy_list, stream_1);
+
+    /* Engine2 Initilaize */
+    int engine_idx_2 = (next_batch_size-1)/(batch_size_s1_/4)+4;
+    std::cout << "Initializing engine2." << std::endl;
+    mContext_list[engine_idx_2]->setBindingDimensions(0, input_dims_s2_0);
+    mContext_list[engine_idx_2]->setBindingDimensions(1, input_dims_s2_1);
+    // Initialize buffer_s2
+    std::shared_ptr<samplesCommon::BertManagedBuffer> srcPtr;
+    srcPtr = buffer_s1.getImmediateBuffer(3);
+    samplesCommon::BertBufferManager buffer_s2(mEngine_list[engine_idx_2], batch_size_s1_,
+                            srcPtr, fake_copy_list, next_batch_size, copy_method);
+
+    auto status_s2 = mContext_list[engine_idx_2]->enqueueV2(buffer_s2.getDeviceBindings().data(), stream_1, nullptr);
+    if (!status_s2) {
+        std::cout << "Error when inferring S2 model" << std::endl;
+    }
+
+    float query_time = 0;
+    float exit_time = 0;
+    int violation = 0;
+    int warmup_num = 5;
+    float mvon_ratio = 0.0;
+    std::vector<float> batch_time_record;
+    std::vector<float> query_time_record;
+    CUDACHECK(cudaDeviceSynchronize());
+    CUDACHECK(cudaEventRecord(infer_start, stream_1));
+    std::cout << "Begin recording..." << std::endl;
+    for (int i = 0; i < batch_num_; i++){
+        // buffer_s1.copyInputToDeviceAsync(stream_2);
+        // CUDACHECK(cudaDeviceSynchronize());
+
+        engine_idx_1 = 3;
+        mContext_list[engine_idx_1]->setBindingDimensions(0, input_dims_s1);
+        mContext_list[engine_idx_1]->setBindingDimensions(1, input_dims_s1);
+        mContext_list[engine_idx_1]->setBindingDimensions(2, input_dims_s1);
+        CUDACHECK(cudaEventRecord(batch_start[i], stream_1));
+        status_s1 = mContext_list[engine_idx_1]->enqueueV2(buffer_s1.getDeviceBindings().data(), stream_1, nullptr);
         if (!status_s1) {
             std::cout << "Error when inferring S1 model" << std::endl;
         }
 
-        std::shared_ptr<samplesCommon::BertManagedBuffer> exitPtr;
-        if (begin_point_ == 0) {
-            exitPtr = buffer_s1.getImmediateBuffer(4);
-        }
-        else {
-            exitPtr = buffer_s1.getImmediateBuffer(3);
-        }
+        exitPtr = buffer_s1.getImmediateBuffer(4);
+        exitPtr_device = static_cast<float*>(exitPtr->deviceBuffer.data());
+        // max_reduction_r(exitPtr_device, copy_list, stream_2);
 
-        float* exitPtr_device = static_cast<float*>(exitPtr->deviceBuffer.data());
-        int *copy_list;
-        int size = (int) batch_size_s1_*sizeof(int);
-        cudaMalloc(&copy_list, size);
-        // max_reduction_r(exitPtr_device, copy_list, stream_1);
+        next_batch_size_1 = record_batch_size[std::rand()%(record_batch_size.size())];
+        // next_batch_size_1 = 0;
+        CUDACHECK(cudaEventRecord(batch_exit[i], stream_1));
+        // std::cout << "batch_size_1: " << next_batch_size_1 << std::endl;
 
-        int next_batch_size = record_batch_size[std::rand()%(record_batch_size.size())];
-        int *fake_copy_list;
-        cudaMalloc(&fake_copy_list, (int) next_batch_size*sizeof(int));
-
-        // Generate on the CPU side and copy to the GPU
-        std::vector<int> full_copy_list;
-        for(int i = 0; i < batch_size_s1_; ++i)
-        {
-            full_copy_list.push_back(i);
-        }
-        random_shuffle(full_copy_list.begin(), full_copy_list.end());
-        int fake_copy_list_host[next_batch_size];
-        for(int i = 0; i < next_batch_size ; ++i){
-            fake_copy_list_host[i] = full_copy_list[i];
-        }
-        cudaMemcpy(fake_copy_list, fake_copy_list_host, (int) next_batch_size*sizeof(int), cudaMemcpyHostToDevice);
-
-        input_dims_s2_0.d[0] = next_batch_size;
-        input_dims_s2_1.d[0] = next_batch_size;
-        input_dims_s2_0.d[1] = sequence_length;
-        input_dims_s2_1.d[1] = sequence_length;
-        mContext_s2->setBindingDimensions(0, input_dims_s2_0);
-        mContext_s2->setBindingDimensions(1, input_dims_s2_1);
-
-        std::shared_ptr<samplesCommon::BertManagedBuffer> srcPtr;
-        if (begin_point_ == 0) {
-            srcPtr = buffer_s1.getImmediateBuffer(3);
-        }
-        else {
-            srcPtr = buffer_s1.getImmediateBuffer(2);
+        // CUDACHECK(cudaDeviceSynchronize());
+        // CUDACHECK(cudaEventSynchronize(batch_exit[i]));
+        if (next_batch_size_1 == 0) {
+            CUDACHECK(cudaEventRecord(batch_end[i], stream_1));
+            CUDACHECK(cudaEventSynchronize(batch_end[i]));
+            if (i >= warmup_num) {
+                CUDACHECK(cudaEventElapsedTime(&query_time, batch_start[i-warmup_num], batch_end[i-warmup_num]));
+                CUDACHECK(cudaEventElapsedTime(&exit_time, batch_start[i-warmup_num], batch_exit[i-warmup_num]));
+                batch_time_record.push_back(query_time);
+                query_time_record.push_back(exit_time);
+            }
+            continue;
         }
 
-        samplesCommon::BertBufferManager buffer_s2(mEngine_s2, batch_size_s1_,
-                                srcPtr, fake_copy_list, next_batch_size, copy_method);
+        engine_idx_2 = (next_batch_size_1-1)/(batch_size_s1_/4)+4;
+        std::shared_ptr<samplesCommon::BertManagedBuffer> manBuf_ptr = buffer_s1.getImmediateBuffer(3);
+        std::shared_ptr<samplesCommon::BertManagedBuffer> new_manBuf = buffer_s2.getImmediateBuffer(0);
+        float* dstPtr_ = static_cast<float*>(new_manBuf->deviceBuffer.data());
+        float* srcPtr_ = static_cast<float*>(manBuf_ptr->deviceBuffer.data());
+        auto dims = mEngine_list[engine_idx_2]->getBindingDimensions(0);
+        dims.d[0] = 1;
+        size_t singleVol = samplesCommon::volume(dims);
 
-        auto status_s2 = mContext_s2->enqueueV2(buffer_s2.getDeviceBindings().data(), stream_0, nullptr);
+        buffercopy(dstPtr_, srcPtr_, singleVol*next_batch_size_1, fake_copy_list, singleVol, stream_2);
+
+        input_dims_s2_0.d[0] = next_batch_size_1;
+        input_dims_s2_1.d[0] = next_batch_size_1;
+        mContext_list[engine_idx_2]->setBindingDimensions(0, input_dims_s2_0);
+        mContext_list[engine_idx_2]->setBindingDimensions(1, input_dims_s2_1);
+        status_s2 = mContext_list[engine_idx_2]->enqueueV2(buffer_s2.getDeviceBindings().data(), stream_0, nullptr);
+        CUDACHECK(cudaEventRecord(batch_end[i], stream_0));
+        if (i >= warmup_num) {
+            CUDACHECK(cudaEventElapsedTime(&query_time, batch_start[i-warmup_num], batch_end[i-warmup_num]));
+            CUDACHECK(cudaEventElapsedTime(&exit_time, batch_start[i-warmup_num], batch_exit[i-warmup_num]));
+            mvon_ratio = float(next_batch_size_1)/float(batch_size_s1_);
+            batch_time_record.push_back(query_time);
+            query_time_record.push_back(exit_time*(1-mvon_ratio)+query_time*mvon_ratio);
+        }
         if (!status_s2) {
             std::cout << "Error when inferring S2 model" << std::endl;
         }
+<<<<<<< HEAD
 
         CUDACHECK(cudaDeviceSynchronize());
 
@@ -375,39 +471,36 @@ std::vector<float> Profiler::bert_execute(const bool separate_or_not, const size
             mContext_s0->setBindingDimensions(0, input_dims_s1);
             mContext_s0->setBindingDimensions(1, input_dims_s1);
             mContext_s0->setBindingDimensions(2, input_dims_s1);
+=======
+        if (next_batch_size_1 >= 16) {
+            CUDACHECK(cudaEventSynchronize(batch_end[i]));
+>>>>>>> origin/v100
         }
         else {
-            input_dims_s2_0.d[0] = batch_size_s1_;
-            input_dims_s2_1.d[0] = batch_size_s1_;
-            input_dims_s2_0.d[1] = sequence_length;
-            input_dims_s2_1.d[1] = sequence_length;
-            mContext_s0->setBindingDimensions(0, input_dims_s2_0);
-            mContext_s0->setBindingDimensions(1, input_dims_s2_1);
+            continue;
         }
-
-        samplesCommon::BertBufferManager buffer_s0(mEngine_s0, batch_size_s1_);
-        buffer_s0.copyInputToDeviceAsync(stream_0);
-        auto status_s0 = mContext_s0->enqueueV2(buffer_s0.getDeviceBindings().data(), stream_0, nullptr);
-        if (!status_s0) {
-            std::cout << "Error when inferring the full model" << std::endl;
-        }
-        CUDACHECK(cudaDeviceSynchronize());
-
-        CUDACHECK(cudaEventRecord(infer_start, stream_0));
-        for (int i = 0; i < batch_num_; i++){
-            status_s0 = mContext_s0->enqueueV2(buffer_s0.getDeviceBindings().data(), stream_0, nullptr);
-            if (!status_s0) {
-                std::cout << "Error when inferring the full model" << std::endl;
-            }
-            CUDACHECK(cudaDeviceSynchronize());
-        }
-        CUDACHECK(cudaDeviceSynchronize());
-        CUDACHECK(cudaEventRecord(s2_end, stream_0));
-        CUDACHECK(cudaEventSynchronize(s2_end));
-    
-        CUDACHECK(cudaEventElapsedTime(&elapsed_time, infer_start, s2_end));
-        metrics.push_back(elapsed_time);
     }
+
+    float sum_batch_time = 0;
+    float sum_query_time = 0;
+    for (int i = 0; i < batch_time_record.size(); i++){
+        sum_batch_time += batch_time_record[i];
+        sum_query_time += query_time_record[i];
+        if (batch_time_record[i] > 31.86) {
+            violation += 1;
+        }
+    }
+    std::cout << "Violation rate: " << violation/batch_time_record.size() << std::endl;
+    float avg_batch_time = sum_batch_time / (batch_num_-warmup_num);
+    float avg_query_time = sum_query_time / (batch_num_-warmup_num);
+    std::cout << "Average time for batches: " << avg_batch_time << " ms" << std::endl;
+    std::cout << "Average time for queries: " << avg_query_time << " ms" << std::endl;
+
+    CUDACHECK(cudaDeviceSynchronize());
+    CUDACHECK(cudaEventRecord(s2_end, stream_0));
+    CUDACHECK(cudaDeviceSynchronize());
+    CUDACHECK(cudaEventElapsedTime(&elapsed_time, infer_start, s2_end));
+    metrics.push_back(elapsed_time);
     return metrics;
 }
 
@@ -468,9 +561,20 @@ std::vector<float> Profiler::execute_2stage(const bool separate_or_not, const si
     }
 
     float query_time = 0;
+<<<<<<< HEAD
     int violation = 0;
     int warmup_num = 5;
     std::vector<float> query_time_record;
+=======
+    float exit_time = 0;
+    float tmp_time = 0;
+    float violation = 0;
+    int warmup_num = 5;
+    float mvon_ratio = 0.0;
+    std::vector<float> batch_time_record;
+    std::vector<float> query_time_record;
+    std::vector<float> tmp_time_record;
+>>>>>>> origin/v100
     CUDACHECK(cudaDeviceSynchronize());
     CUDACHECK(cudaEventRecord(infer_start, stream_1));
     for (int i = 0; i < batch_num_; i++){
@@ -479,7 +583,11 @@ std::vector<float> Profiler::execute_2stage(const bool separate_or_not, const si
 
         engine_idx_1 = 3;
         mContext_list[engine_idx_1]->setBindingDimensions(0, input_dims[engine_idx_1]);
+<<<<<<< HEAD
         CUDACHECK(cudaEventRecord(query_start[i], stream_1));
+=======
+        CUDACHECK(cudaEventRecord(batch_start[i], stream_1));
+>>>>>>> origin/v100
         status_s1 = mContext_list[engine_idx_1]->enqueueV2(buffer_s1.getDeviceBindings().data(), stream_1, nullptr);
         if (!status_s1) {
             std::cout << "Error when inferring S1 model" << std::endl;
@@ -487,17 +595,35 @@ std::vector<float> Profiler::execute_2stage(const bool separate_or_not, const si
 
         exitPtr = buffer_s1.getImmediateBuffer(2);
         exitPtr_device = static_cast<float*>(exitPtr->deviceBuffer.data());
+
+        // CUDACHECK(cudaEventRecord(tmp_event_1[i], stream_1));
         max_reduction_r(exitPtr_device, copy_list, stream_1);
+        // CUDACHECK(cudaEventRecord(tmp_event_2[i], stream_1));
 
         next_batch_size = record_batch_size[std::rand()%(record_batch_size.size())];
-        // next_batch_size = 128;
+        CUDACHECK(cudaEventRecord(batch_exit[i], stream_1));
+        // next_batch_size = 0;
 
+<<<<<<< HEAD
         CUDACHECK(cudaDeviceSynchronize());
         if (next_batch_size == 0) {
             CUDACHECK(cudaEventRecord(query_end[i], stream_1));
             if (i >= warmup_num) {
                 CUDACHECK(cudaEventElapsedTime(&query_time, query_start[i-warmup_num], query_end[i-warmup_num]));
                 query_time_record.push_back(query_time);
+=======
+        CUDACHECK(cudaEventSynchronize(batch_exit[i]));
+        if (next_batch_size == 0) {
+            CUDACHECK(cudaEventRecord(batch_end[i], stream_1));
+            CUDACHECK(cudaEventSynchronize(batch_end[i]));
+            if (i >= warmup_num) {
+                CUDACHECK(cudaEventElapsedTime(&query_time, batch_start[i-warmup_num], batch_end[i-warmup_num]));
+                CUDACHECK(cudaEventElapsedTime(&exit_time, batch_start[i-warmup_num], batch_exit[i-warmup_num]));
+                // CUDACHECK(cudaEventElapsedTime(&tmp_time, tmp_event_1[i-warmup_num], tmp_event_2[i-warmup_num]));
+                batch_time_record.push_back(query_time);
+                query_time_record.push_back(exit_time);
+                // tmp_time_record.push_back(tmp_time);
+>>>>>>> origin/v100
             }
             continue;
         }
@@ -511,37 +637,71 @@ std::vector<float> Profiler::execute_2stage(const bool separate_or_not, const si
         dims.d[0] = 1;
         size_t singleVol = samplesCommon::volume(dims);
 
+        // CUDACHECK(cudaEventRecord(tmp_event_1[i], stream_1));
         buffercopy(dstPtr_, srcPtr_, singleVol*next_batch_size, fake_copy_list, singleVol, stream_1);
+        // CUDACHECK(cudaEventRecord(tmp_event_2[i], stream_1));
 
         input_dims[engine_idx_2].d[0] = next_batch_size;
         mContext_list[engine_idx_2]->setBindingDimensions(0, input_dims[engine_idx_2]);
         status_s2 = mContext_list[engine_idx_2]->enqueueV2(buffer_s2.getDeviceBindings().data(), stream_0, nullptr);
+<<<<<<< HEAD
         CUDACHECK(cudaEventRecord(query_end[i], stream_0));
         if (i >= warmup_num) {
             CUDACHECK(cudaEventElapsedTime(&query_time, query_start[i-warmup_num], query_end[i-warmup_num]));
             query_time_record.push_back(query_time);
+=======
+        CUDACHECK(cudaEventRecord(batch_end[i], stream_0));
+        // CUDACHECK(cudaEventSynchronize(batch_end[i]));
+        if (i >= warmup_num) {
+            CUDACHECK(cudaEventElapsedTime(&query_time, batch_start[i-warmup_num], batch_end[i-warmup_num]));
+            CUDACHECK(cudaEventElapsedTime(&exit_time, batch_start[i-warmup_num], batch_exit[i-warmup_num]));
+            // CUDACHECK(cudaEventElapsedTime(&tmp_time, tmp_event_1[i-warmup_num], tmp_event_2[i-warmup_num]));
+            mvon_ratio = float(next_batch_size)/float(batch_size_s1_);
+            // std::cout << "next_batch_size: " << next_batch_size << std::endl;
+            // std::cout << "mvon_ratio: " << mvon_ratio << std::endl;
+            // std::cout << "exit_time: " << exit_time << std::endl;
+            // std::cout << "query_time: " << query_time << std::endl;
+            batch_time_record.push_back(query_time);
+            query_time_record.push_back(exit_time*(1-mvon_ratio)+query_time*mvon_ratio);
+            // tmp_time_record.push_back(tmp_time);
+>>>>>>> origin/v100
         }
         if (!status_s2) {
             std::cout << "Error when inferring S2 model" << std::endl;
         }
+<<<<<<< HEAD
         if (next_batch_size >= 0) {
             CUDACHECK(cudaDeviceSynchronize());
+=======
+        if (next_batch_size >= 8) {
+            CUDACHECK(cudaEventSynchronize(batch_end[i]));
+>>>>>>> origin/v100
         }
         else {
             continue;
         }
     }
 
+    float sum_batch_time = 0;
     float sum_query_time = 0;
-    for (int i = 0; i < query_time_record.size(); i++){
+    float sum_tmp_time = 0;
+    for (int i = 0; i < batch_time_record.size(); i++){
+        sum_batch_time += batch_time_record[i];
         sum_query_time += query_time_record[i];
-        if (query_time_record[i] > 129) {
+        if (batch_time_record[i] > 129) {
             violation += 1;
         }
     }
-    std::cout << "Violation rate: " << violation/query_time_record.size() << std::endl;
+    // for (int i = 0; i < tmp_time_record.size(); i++){
+    //     sum_tmp_time += tmp_time_record[i];
+    // }
+    std::cout << "Violation rate: " << violation/batch_time_record.size() << std::endl;
+    float avg_batch_time = sum_batch_time / (batch_num_-warmup_num);
     float avg_query_time = sum_query_time / (batch_num_-warmup_num);
-    std::cout << "Average query time: " << avg_query_time << " ms" << std::endl;
+    // float avg_tmp_time = sum_tmp_time / tmp_time_record.size();
+    std::cout << "Average time for batches: " << avg_batch_time << " ms" << std::endl;
+    std::cout << "Average time for queries: " << avg_query_time << " ms" << std::endl;
+    // std::cout << "Average time check: " << avg_tmp_time << " ms" << std::endl;
 
     CUDACHECK(cudaDeviceSynchronize());
     CUDACHECK(cudaEventRecord(s2_end, stream_0));
@@ -643,9 +803,22 @@ std::vector<float> Profiler::bert_execute_multi_stage(const bool separate_or_not
     }
 
     float query_time = 0;
+<<<<<<< HEAD
     int violation = 0;
     int warmup_num = 5;
     std::vector<float> query_time_record;
+=======
+    float exit_time_1 = 0;
+    float exit_time_2 = 0;
+    float tmp_time = 0;
+    int violation = 0;
+    int warmup_num = 0;
+    float mvon_ratio_1 = 0.0;
+    float mvon_ratio_2 = 0.0;
+    std::vector<float> batch_time_record;
+    std::vector<float> query_time_record;
+    std::vector<float> tmp_time_record;
+>>>>>>> origin/v100
     CUDACHECK(cudaDeviceSynchronize());
     CUDACHECK(cudaEventRecord(infer_start, stream_2));
     std::cout << "Begin recording..." << std::endl;
@@ -657,7 +830,11 @@ std::vector<float> Profiler::bert_execute_multi_stage(const bool separate_or_not
         mContext_list[engine_idx_1]->setBindingDimensions(0, input_dims_s1);
         mContext_list[engine_idx_1]->setBindingDimensions(1, input_dims_s1);
         mContext_list[engine_idx_1]->setBindingDimensions(2, input_dims_s1);
+<<<<<<< HEAD
         CUDACHECK(cudaEventRecord(query_start[i], stream_2));
+=======
+        CUDACHECK(cudaEventRecord(batch_start[i], stream_2));
+>>>>>>> origin/v100
         status_s1 = mContext_list[engine_idx_1]->enqueueV2(buffer_s1.getDeviceBindings().data(), stream_2, nullptr);
         if (!status_s1) {
             std::cout << "Error when inferring S1 model" << std::endl;
@@ -665,6 +842,7 @@ std::vector<float> Profiler::bert_execute_multi_stage(const bool separate_or_not
 
         exitPtr = buffer_s1.getImmediateBuffer(4);
         exitPtr_device = static_cast<float*>(exitPtr->deviceBuffer.data());
+<<<<<<< HEAD
         max_reduction_r(exitPtr_device, copy_list, stream_2);
 
         next_batch_size_1 = record_batch_size[0][std::rand()%(record_batch_size[0].size())];
@@ -676,6 +854,26 @@ std::vector<float> Profiler::bert_execute_multi_stage(const bool separate_or_not
             if (i >= warmup_num) {
                 CUDACHECK(cudaEventElapsedTime(&query_time, query_start[i-warmup_num], query_end[i-warmup_num]));
                 query_time_record.push_back(query_time);
+=======
+        // max_reduction_r(exitPtr_device, copy_list, stream_2);
+
+        next_batch_size_1 = record_batch_size[0][std::rand()%(record_batch_size[0].size())];
+        // std::cout << "batch_size_1: " << next_batch_size_1 << std::endl;
+        CUDACHECK(cudaEventRecord(batch_exit[i], stream_2));
+
+        // CUDACHECK(cudaDeviceSynchronize());
+        CUDACHECK(cudaEventSynchronize(batch_exit[i]));
+        if (next_batch_size_1 == 0) {
+            CUDACHECK(cudaEventRecord(batch_end[i], stream_2));
+            CUDACHECK(cudaEventSynchronize(batch_end[i]));
+            if (i >= warmup_num) {
+                CUDACHECK(cudaEventElapsedTime(&query_time, batch_start[i-warmup_num], batch_end[i-warmup_num]));
+                CUDACHECK(cudaEventElapsedTime(&exit_time_1, batch_start[i-warmup_num], batch_exit[i-warmup_num]));
+                // CUDACHECK(cudaEventElapsedTime(&tmp_time, tmp_event_1[i-warmup_num], tmp_event_2[i-warmup_num]));
+                batch_time_record.push_back(query_time);
+                query_time_record.push_back(exit_time_1);
+                // tmp_time_record.push_back(tmp_time);
+>>>>>>> origin/v100
             }
             continue;
         }
@@ -689,7 +887,11 @@ std::vector<float> Profiler::bert_execute_multi_stage(const bool separate_or_not
         dims.d[0] = 1;
         size_t singleVol = samplesCommon::volume(dims);
 
+<<<<<<< HEAD
         buffercopy(dstPtr_, srcPtr_, singleVol*next_batch_size_1, fake_copy_list, singleVol, stream_2);
+=======
+        // buffercopy(dstPtr_, srcPtr_, singleVol*next_batch_size_1, fake_copy_list, singleVol, stream_2);
+>>>>>>> origin/v100
 
         input_dims_s2_0.d[0] = next_batch_size_1;
         input_dims_s2_1.d[0] = next_batch_size_1;
@@ -702,6 +904,7 @@ std::vector<float> Profiler::bert_execute_multi_stage(const bool separate_or_not
 
         exitPtr = buffer_s2.getImmediateBuffer(3);
         exitPtr_device = static_cast<float*>(exitPtr->deviceBuffer.data());
+<<<<<<< HEAD
         max_reduction_r(exitPtr_device, copy_list, stream_1);
 
         next_batch_size_2 = record_batch_size[1][std::rand()%(record_batch_size[1].size())];
@@ -712,6 +915,28 @@ std::vector<float> Profiler::bert_execute_multi_stage(const bool separate_or_not
             if (i >= warmup_num) {
                 CUDACHECK(cudaEventElapsedTime(&query_time, query_start[i-warmup_num], query_end[i-warmup_num]));
                 query_time_record.push_back(query_time);
+=======
+        // max_reduction_r(exitPtr_device, copy_list, stream_1);
+
+        next_batch_size_2 = record_batch_size[1][std::rand()%(record_batch_size[1].size())];
+        while (next_batch_size_2 > next_batch_size_1) {
+            next_batch_size_2 = record_batch_size[1][std::rand()%(record_batch_size[1].size())];
+        }
+        CUDACHECK(cudaEventRecord(batch_exit_2[i], stream_1));
+        // std::cout << "batch_size_2: " << next_batch_size_2 << std::endl;
+        // CUDACHECK(cudaDeviceSynchronize());
+        CUDACHECK(cudaEventSynchronize(batch_exit_2[i]));
+        if (next_batch_size_2 == 0) {
+            CUDACHECK(cudaEventRecord(batch_end[i], stream_1));
+            CUDACHECK(cudaEventSynchronize(batch_end[i]));
+            if (i >= warmup_num) {
+                CUDACHECK(cudaEventElapsedTime(&query_time, batch_start[i-warmup_num], batch_end[i-warmup_num]));
+                CUDACHECK(cudaEventElapsedTime(&exit_time_1, batch_start[i-warmup_num], batch_exit[i-warmup_num]));
+                CUDACHECK(cudaEventElapsedTime(&exit_time_2, batch_start[i-warmup_num], batch_exit_2[i-warmup_num]));
+                mvon_ratio_1 = float(next_batch_size_1)/float(batch_size_s1_);
+                batch_time_record.push_back(query_time);
+                query_time_record.push_back(exit_time_1*(1-mvon_ratio_1)+exit_time_2*mvon_ratio_1);
+>>>>>>> origin/v100
             }
             continue;
         }
@@ -722,16 +947,25 @@ std::vector<float> Profiler::bert_execute_multi_stage(const bool separate_or_not
         dstPtr_ = static_cast<float*>(new_manBuf->deviceBuffer.data());
         srcPtr_ = static_cast<float*>(manBuf_ptr->deviceBuffer.data());
 
+<<<<<<< HEAD
         buffercopy(dstPtr_, srcPtr_, singleVol*next_batch_size_2, fake_copy_list, singleVol, stream_1);
+=======
+        // buffercopy(dstPtr_, srcPtr_, singleVol*next_batch_size_2, fake_copy_list, singleVol, stream_1);
+>>>>>>> origin/v100
 
         input_dims_s2_0.d[0] = next_batch_size_2;
         input_dims_s2_1.d[0] = next_batch_size_2;
         mContext_list[engine_idx_3]->setBindingDimensions(0, input_dims_s2_0);
         mContext_list[engine_idx_3]->setBindingDimensions(1, input_dims_s2_1);
+<<<<<<< HEAD
+=======
+        CUDACHECK(cudaEventRecord(tmp_event_1[i], stream_0));
+>>>>>>> origin/v100
         status_s3 = mContext_list[engine_idx_3]->enqueueV2(buffer_s3.getDeviceBindings().data(), stream_0, nullptr);
         if (!status_s3) {
             std::cout << "Error when inferring S3 model" << std::endl;
         }
+<<<<<<< HEAD
 
         CUDACHECK(cudaEventRecord(query_end[i], stream_1));
         if (i >= warmup_num) {
@@ -740,6 +974,25 @@ std::vector<float> Profiler::bert_execute_multi_stage(const bool separate_or_not
         }
 
         if (next_batch_size_1 >= 0 || next_batch_size_2 >= 0) {
+=======
+        CUDACHECK(cudaEventRecord(tmp_event_2[i], stream_0));
+
+        CUDACHECK(cudaEventRecord(batch_end[i], stream_0));
+        CUDACHECK(cudaEventSynchronize(batch_end[i]));
+        if (i >= warmup_num) {
+            CUDACHECK(cudaEventElapsedTime(&query_time, batch_start[i-warmup_num], batch_end[i-warmup_num]));
+            CUDACHECK(cudaEventElapsedTime(&exit_time_1, batch_start[i-warmup_num], batch_exit[i-warmup_num]));
+            CUDACHECK(cudaEventElapsedTime(&exit_time_2, batch_start[i-warmup_num], batch_exit_2[i-warmup_num]));
+            CUDACHECK(cudaEventElapsedTime(&tmp_time, tmp_event_1[i-warmup_num], tmp_event_2[i-warmup_num]));
+            mvon_ratio_1 = float(next_batch_size_1)/float(batch_size_s1_);
+            mvon_ratio_2 = float(next_batch_size_2)/float(next_batch_size_1);
+            batch_time_record.push_back(query_time);
+            query_time_record.push_back(exit_time_1*(1-mvon_ratio_1)+exit_time_2*mvon_ratio_1*(1-mvon_ratio_2)+query_time*mvon_ratio_1*mvon_ratio_2);
+            tmp_time_record.push_back(tmp_time);
+        }
+
+        if (next_batch_size_1 >= 4 || next_batch_size_2 >= 4) {
+>>>>>>> origin/v100
             CUDACHECK(cudaDeviceSynchronize());
         }
         else {
@@ -747,6 +1000,7 @@ std::vector<float> Profiler::bert_execute_multi_stage(const bool separate_or_not
         }
     }
 
+<<<<<<< HEAD
     float sum_query_time = 0;
     for (int i = 0; i < query_time_record.size(); i++){
         sum_query_time += query_time_record[i];
@@ -757,6 +1011,30 @@ std::vector<float> Profiler::bert_execute_multi_stage(const bool separate_or_not
     std::cout << "Violation rate: " << violation/query_time_record.size() << std::endl;
     float avg_query_time = sum_query_time / (batch_num_-warmup_num);
     std::cout << "Average query time: " << avg_query_time << " ms" << std::endl;
+=======
+    float sum_batch_time = 0;
+    float sum_query_time = 0;
+    float sum_tmp_time = 0;
+    for (int i = 0; i < batch_time_record.size(); i++){
+        sum_batch_time += batch_time_record[i];
+        sum_query_time += query_time_record[i];
+        if (batch_time_record[i] > 31.86) {
+            violation += 1;
+        }
+    }
+    for (int i = 0; i < tmp_time_record.size(); i++){
+        sum_tmp_time += tmp_time_record[i];
+    }
+    std::cout << "Violation rate: " << violation/batch_time_record.size() << std::endl;
+    float avg_batch_time = sum_batch_time / (batch_num_-warmup_num);
+    float avg_query_time = sum_query_time / (batch_num_-warmup_num);
+    float avg_tmp_time = sum_tmp_time / tmp_time_record.size();
+    std::cout << "Average query time: " << avg_batch_time << " ms" << std::endl;
+    std::cout << "Average time for batches: " << avg_batch_time << " ms" << std::endl;
+    std::cout << "Average time for queries: " << avg_query_time << " ms" << std::endl;
+    std::cout << "Average time check: " << avg_tmp_time << " ms" << std::endl;
+
+>>>>>>> origin/v100
 
     CUDACHECK(cudaDeviceSynchronize());
     CUDACHECK(cudaEventRecord(s2_end, stream_0));
@@ -847,7 +1125,11 @@ std::vector<float> Profiler::execute_multi_stage(const bool separate_or_not, con
     float query_time = 0;
     int violation = 0;
     int warmup_num = 5;
+<<<<<<< HEAD
     std::vector<float> query_time_record;
+=======
+    std::vector<float> batch_time_record;
+>>>>>>> origin/v100
     CUDACHECK(cudaDeviceSynchronize());
     CUDACHECK(cudaEventRecord(infer_start, stream_2));
     std::cout << "Begin recording..." << std::endl;
@@ -857,7 +1139,11 @@ std::vector<float> Profiler::execute_multi_stage(const bool separate_or_not, con
 
         engine_idx_1 = 3;
         mContext_list[engine_idx_1]->setBindingDimensions(0, input_dims[engine_idx_1]);
+<<<<<<< HEAD
         CUDACHECK(cudaEventRecord(query_start[i], stream_2));
+=======
+        CUDACHECK(cudaEventRecord(batch_start[i], stream_2));
+>>>>>>> origin/v100
         status_s1 = mContext_list[engine_idx_1]->enqueueV2(buffer_s1.getDeviceBindings().data(), stream_2, nullptr);
         if (!status_s1) {
             std::cout << "Error when inferring S1 model" << std::endl;
@@ -871,10 +1157,17 @@ std::vector<float> Profiler::execute_multi_stage(const bool separate_or_not, con
 
         // CUDACHECK(cudaDeviceSynchronize());
         if (next_batch_size_1 == 0) {
+<<<<<<< HEAD
             CUDACHECK(cudaEventRecord(query_end[i], stream_2));
             if (i >= warmup_num) {
                 CUDACHECK(cudaEventElapsedTime(&query_time, query_start[i-warmup_num], query_end[i-warmup_num]));
                 query_time_record.push_back(query_time);
+=======
+            CUDACHECK(cudaEventRecord(batch_end[i], stream_2));
+            if (i >= warmup_num) {
+                CUDACHECK(cudaEventElapsedTime(&query_time, batch_start[i-warmup_num], batch_end[i-warmup_num]));
+                batch_time_record.push_back(query_time);
+>>>>>>> origin/v100
                 std::cout << query_time << std::endl;
             }
             continue;
@@ -905,10 +1198,17 @@ std::vector<float> Profiler::execute_multi_stage(const bool separate_or_not, con
         next_batch_size_2 = record_batch_size[1][std::rand()%(record_batch_size[1].size())];
         // CUDACHECK(cudaDeviceSynchronize());
         if (next_batch_size_2 == 0) {
+<<<<<<< HEAD
             CUDACHECK(cudaEventRecord(query_end[i], stream_1));
             if (i >= warmup_num) {
                 CUDACHECK(cudaEventElapsedTime(&query_time, query_start[i-warmup_num], query_end[i-warmup_num]));
                 query_time_record.push_back(query_time);
+=======
+            CUDACHECK(cudaEventRecord(batch_end[i], stream_1));
+            if (i >= warmup_num) {
+                CUDACHECK(cudaEventElapsedTime(&query_time, batch_start[i-warmup_num], batch_end[i-warmup_num]));
+                batch_time_record.push_back(query_time);
+>>>>>>> origin/v100
             }
             continue;
         }
@@ -928,10 +1228,17 @@ std::vector<float> Profiler::execute_multi_stage(const bool separate_or_not, con
             std::cout << "Error when inferring S3 model" << std::endl;
         }
 
+<<<<<<< HEAD
         CUDACHECK(cudaEventRecord(query_end[i], stream_1));
         if (i >= warmup_num) {
             CUDACHECK(cudaEventElapsedTime(&query_time, query_start[i-warmup_num], query_end[i-warmup_num]));
             query_time_record.push_back(query_time);
+=======
+        CUDACHECK(cudaEventRecord(batch_end[i], stream_1));
+        if (i >= warmup_num) {
+            CUDACHECK(cudaEventElapsedTime(&query_time, batch_start[i-warmup_num], batch_end[i-warmup_num]));
+            batch_time_record.push_back(query_time);
+>>>>>>> origin/v100
         }
 
         if (next_batch_size_1 >= 0 || next_batch_size_2 >= 0) {
@@ -942,6 +1249,7 @@ std::vector<float> Profiler::execute_multi_stage(const bool separate_or_not, con
         }
     }
 
+<<<<<<< HEAD
     float sum_query_time = 0;
     for (int i = 0; i < query_time_record.size(); i++){
         sum_query_time += query_time_record[i];
@@ -952,6 +1260,18 @@ std::vector<float> Profiler::execute_multi_stage(const bool separate_or_not, con
     std::cout << "Violation rate: " << violation/query_time_record.size() << std::endl;
     float avg_query_time = sum_query_time / (batch_num_-warmup_num);
     std::cout << "Average query time: " << avg_query_time << " ms" << std::endl;
+=======
+    float sum_batch_time = 0;
+    for (int i = 0; i < batch_time_record.size(); i++){
+        sum_batch_time += batch_time_record[i];
+        if (batch_time_record[i] > 38.02) {
+            violation += 1;
+        }
+    }
+    std::cout << "Violation rate: " << violation/batch_time_record.size() << std::endl;
+    float avg_batch_time = sum_batch_time / (batch_num_-warmup_num);
+    std::cout << "Average query time: " << avg_batch_time << " ms" << std::endl;
+>>>>>>> origin/v100
 
     CUDACHECK(cudaDeviceSynchronize());
     CUDACHECK(cudaEventRecord(s2_end, stream_0));
@@ -987,8 +1307,13 @@ bool model_generation(std::string model_name, const int start_point, const int e
 
 int main(int argc, char** argv)
 {
+<<<<<<< HEAD
     // int nGpuId = 1;
     // cudaSetDevice(nGpuId);
+=======
+    int nGpuId = 1;
+    cudaSetDevice(nGpuId);
+>>>>>>> origin/v100
     // int leastPriority;
     // int greatestPriority;
     // cudaDeviceGetStreamPriorityRange (&leastPriority, &greatestPriority );
@@ -1028,6 +1353,10 @@ int main(int argc, char** argv)
                             nvinfer1::ILogger::Severity::kERROR);
 
     std::string movon_dict_path_1 = config_doc["moveon_dict_path_1"].GetString();
+<<<<<<< HEAD
+=======
+
+>>>>>>> origin/v100
     std::vector<int> record_batch_size = generate_copy_list(movon_dict_path_1, infer_batch_size_s1);
     std::vector<std::string> model_name_list;
     model_name_list.push_back(config_doc["model_1"].GetString());

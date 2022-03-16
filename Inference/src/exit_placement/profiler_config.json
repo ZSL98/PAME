@@ -9,7 +9,7 @@
     "seperate_or_not": true,
     "begin_point": 0,
     "split_point": 1,
-    "termi_point": 34,
-    "fp16": false
+    "termi_point": 33,
+    "fp16": false,
+    "stage_interval": 1
   }
-  

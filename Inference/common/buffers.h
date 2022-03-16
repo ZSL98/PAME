@@ -856,7 +856,7 @@ public:
             mManagedBuffers.emplace_back(std::move(manBuf));
             //std::cout << mManagedBuffers.back()->deviceBuffer.data() <<std::endl;
             mDeviceBindings.emplace_back(mManagedBuffers.back()->deviceBuffer.data());
-            // std::cout << "dims: " << dims << std::endl;
+            // std::cout << "i: " << i << "  dims: " << dims << std::endl;
 
             // if (i != 0) {
             //     auto dims = mEngine->getBindingDimensions(i);

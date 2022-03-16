@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 from networks_v2 import resnet_s1, resnet_s2, posenet_s1, posenet_s2, backbone_s2, backbone_s3, backbone_init
 from transformers import Wav2Vec2FeatureExtractor, Wav2Vec2Processor, Wav2Vec2CTCTokenizer
+from swin_transformer import SwinTransformer_s1, SwinTransformer_s2
 from wav2vec2_model import Wav2Vec2_with_exit_s1, Wav2Vec2_with_exit_s2, Wav2Vec2_with_dual_exit
 from modeling_bert import BertWithExit_s1, BertWithExit_s2, BertWithDualExit
 from ocrnet_with_exit import SpatialOCRNet_s1, SpatialOCRNet_s2, SpatialOCRNet
@@ -50,7 +51,7 @@ class construct_net(object):
                                 split_point_s3=self.split_point, 
                                 is_init=True)
             else:
-                return posenet_s2(layers=[3, 4, 23, 3],
+                return posenet_s1(layers=[3, 4, 23, 3],
                                 begin_point=self.begin_point,
                                 split_point_s1=self.split_point, 
                                 split_point_s2=self.split_point, 
@@ -92,7 +93,10 @@ class construct_net(object):
             return model_CTC
 
         elif self.backbone == 'openseg':
-            return SpatialOCRNet_s1(self.start_point)
+            return SpatialOCRNet_s1(self.split_point)
+
+        elif self.backbone == 'swin':
+            return SwinTransformer_s1(split_point=self.split_point)
 
     def construct_net_s2(self):
         if self.backbone == 'resnet':
@@ -127,8 +131,12 @@ class construct_net(object):
             )
             model_CTC.add_exit(end_point=self.begin_point+self.split_point)
             return model_CTC
+
         elif self.backbone == 'openseg':
-            return SpatialOCRNet_s2(self.start_point)
+            return SpatialOCRNet_s2(self.split_point)
+
+        elif self.backbone == 'swin':
+            return SwinTransformer_s2(split_point=self.split_point)
 
     def construct_net_s3(self):
         if self.backbone == 'resnet' or self.backbone == 'posenet':
@@ -167,6 +175,8 @@ def model_export_func(model_name, begin_point, split_point, exit_type=False):
         dummy_input1 = torch.randn(1, 10000)
         if begin_point != 0:
             dummy_input1 = torch.randn(1, 31, 768)
+    elif inst.backbone == "swin":
+        dummy_input1 = torch.randn(1, 3, 224, 224)
 
     s1_model = inst.construct_net_s1()
     s1_model.eval()
@@ -184,22 +194,31 @@ def model_export_func(model_name, begin_point, split_point, exit_type=False):
         dummy_input2 = torch.randn(1, 1024, 129, 257)
         # dummy_input2 = torch.randn(1, 1024, 48, 48)
         # print(x_moveon.shape)
+    elif inst.backbone == "swin":
+        dummy_input2 = s1_model(dummy_input1)
+        print(dummy_input2[0].shape)
+        dummy_input2 = dummy_input2[0]
 
     s2_model = inst.construct_net_s2()
     s2_model.eval()
 
     # tmp_model = SpatialOCRNet()
-    # tmp_model = model
+    # tmp_model = posenet_s1(layers=[3, 4, 23, 3],
+    #                             begin_point=0,
+    #                             split_point_s1=33, 
+    #                             split_point_s2=33, 
+    #                             split_point_s3=33, 
+    #                             is_init=True)
     # s2_input_names = ["input"]
-    # # s2_output_names = ["output_dsn", "output"]
-    # s2_output_names = ["output"]
+    # s2_output_names = ["output_dsn", "output"]
+    # # s2_output_names = ["output"]
     # torch.onnx.export(tmp_model, dummy_input1,
     #                     "/home/slzhang/projects/ETBA/Inference/src/exit_placement/models/" + inst.backbone + "_s0.onnx",
     #                 input_names=s2_input_names, output_names=s2_output_names,
     #                 verbose=False,dynamic_axes={
     #                                 'input': {0: 'batch_size'},
+    #                                 'output_dsn': {0: 'batch_size'},
     #                                 'output': {0: 'batch_size'},
-    #                                 # 'output': {0: 'batch_size'},
     #                             },opset_version=11)
     # exit()
 
@@ -208,7 +227,7 @@ def model_export_func(model_name, begin_point, split_point, exit_type=False):
     # print(dummy_input1.shape)
     # print(dummy_input2.shape)
 
-    if inst.backbone == "resnet" or inst.backbone == "posenet" or inst.backbone == "Wav2Vec2":
+    if inst.backbone == "resnet" or inst.backbone == "posenet" or inst.backbone == "Wav2Vec2" or inst.backbone == "swin":
         s1_input_names = ["input"]
         s1_output_names = ["output1", "exit_output"]
         torch.onnx.export(s1_model, dummy_input1, 
@@ -290,7 +309,7 @@ def model_export_func(model_name, begin_point, split_point, exit_type=False):
             s1_dynamic_axes.pop('token_type_ids')
             s1_dynamic_axes['output1'] = {0: 'batch', 1: 'sequence'}
             s1_dynamic_axes['exit_output'] = {0: 'batch'}
-            s1_model_args = (torch.Tensor(1, 7, 768), torch.Tensor(1, 7))
+            s1_model_args = (torch.Tensor(1, 64, 768), torch.Tensor(1, 64))
 
             torch.onnx.export(
                 s1_model,
@@ -308,7 +327,7 @@ def model_export_func(model_name, begin_point, split_point, exit_type=False):
         s2_dynamic_axes = copy.deepcopy(dynamic_axes)
         s2_dynamic_axes.pop('token_type_ids')
         s2_dynamic_axes['final_output'] = {0: 'batch'}
-        s2_model_args = (torch.Tensor(1, 7, 768), torch.Tensor(1, 7))
+        s2_model_args = (torch.Tensor(1, 64, 768), torch.Tensor(1, 64))
 
         torch.onnx.export(
             s2_model,
@@ -467,7 +486,7 @@ def model_export_func_backup(model_name, split_point_s1, split_point_s2, split_p
         s2_dynamic_axes = copy.deepcopy(dynamic_axes)
         s2_dynamic_axes.pop('token_type_ids')
         s2_dynamic_axes['final_output'] = {0: 'batch'}
-        s2_model_args = (torch.Tensor(1, 7, 768), torch.Tensor(1, 7))
+        s2_model_args = (torch.Tensor(1, 64, 768), torch.Tensor(1, 64))
 
         torch.onnx.export(
             s2_model,
@@ -486,4 +505,5 @@ def model_export_func_backup(model_name, split_point_s1, split_point_s2, split_p
 
 
 if __name__ == '__main__':
-    model_export_func('resnet', 0, 2)
+    model_export_func('swin', 0, 25)
+    print('Done!')
