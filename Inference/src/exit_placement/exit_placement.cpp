@@ -1009,10 +1009,11 @@ int main(int argc, char** argv)
         config_fp, read_buffer, sizeof(read_buffer));
     rapidjson::Document config_doc;
     config_doc.ParseStream(config_fs);
+    std::string device_info = config_doc["device_info"].GetString();
+    std::cout << "device info: " << device_info << std::endl;
 
     std::ofstream outFile;
     Py_Initialize();
-    int extend_max_block = 1;
     if (config_doc["seperate_or_not"].GetBool()){
         for (int split_point = config_doc["split_point"].GetUint(); split_point < config_doc["termi_point"].GetUint(); split_point=split_point+config_doc["stage_interval"].GetUint())
         {
@@ -1057,7 +1058,7 @@ int main(int argc, char** argv)
 
             }
             
-            outFile.open("/home/slzhang/projects/ETBA/Inference/src/exit_placement/results/config_v100_" + model_name + "_" +
+            outFile.open("/home/slzhang/projects/ETBA/Inference/src/exit_placement/results/config_"+device_info+"_" + model_name + "_bs" +
                             to_string(config_doc["bs_s1"].GetUint()) + "_l" + to_string(config_doc["begin_point"].GetUint()) + ".csv", ios::app);
             outFile << config_doc["begin_point"].GetUint() << ',' << split_point << ',';
 
