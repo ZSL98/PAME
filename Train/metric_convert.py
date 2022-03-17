@@ -124,7 +124,7 @@ def parse_args():
     parser.add_argument('--init', type=bool, default=False, help='Determine the threshold or not')
     parser.add_argument('--batch_size', type=int, default=4, help='Batch size')
     parser.add_argument('--last_exit', type=int, nargs='+', help='Last exit')
-    parser.add_argument('--all_or_sep', type=bool, default=False, help='All or Separate')
+    parser.add_argument('--all_or_sep', type=bool, default=True, help='All or Separate')
 
     args = parser.parse_args()
     return args
