@@ -63,9 +63,9 @@ with torch.cuda.device(0):
     # macs, params = get_model_complexity_info(model, (1, 2), as_strings=True, input_constructor=partial(_input_constructor, tokenizer=tok),
     #                                         print_per_layer_stat=True, verbose=True)
 
-    # model = SpatialOCRNet()
-    model = PoseResNet()
-    # model = models.resnet18(pretrained=True)
+    model = SpatialOCRNet()
+    # model = PoseResNet()
+    # model = models.resnet101(pretrained=True)
     # model = resnet_s1(start_point=8, end_point=8, simple_exit=False)
     macs, params = get_model_complexity_info(model, (3, 224, 224), as_strings=True,
                                             print_per_layer_stat=True, verbose=True)

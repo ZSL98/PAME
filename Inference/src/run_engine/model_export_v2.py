@@ -329,4 +329,4 @@ def model_export_func(model_name, begin_point, split_point, exit_type=False):
     #     pass
 
 if __name__ == '__main__':
-    model_export_func('bert', 8, 4)
+    model_export_func('bert', 0, 7)

@@ -237,8 +237,8 @@ std::vector<int> generate_copy_list(std::string movon_dict_path, int batch_size)
                 record_batch_size.push_back(0);
                 idx += 1;
             }
-            // record_batch_size[idx] += array[i].GetBool();
-            record_batch_size[idx] += array[i].GetUint();
+            record_batch_size[idx] += array[i].GetBool();
+            // record_batch_size[idx] += array[i].GetUint();
             total_cnt += 1;
             
         }
@@ -1081,7 +1081,7 @@ bool model_generation(std::string model_name, const int start_point, const int e
 
 int main(int argc, char** argv)
 {
-    int nGpuId = 1;
+    int nGpuId = 0;
     cudaSetDevice(nGpuId);
     // int leastPriority;
     // int greatestPriority;
