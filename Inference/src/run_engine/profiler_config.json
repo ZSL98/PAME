@@ -11,11 +11,11 @@
     "split_point": 1,
     "termi_point": 34,
     "fp16": false,
-    "moveon_dict_path_1": "/home/slzhang/projects/ETBA/Train/moveon_dict/rte/rte_exit_l[0, 5]_b16_t99.json",
+    "moveon_dict_path_1": "/home/slzhang/projects/ETBA/Train/moveon_dict/bert/mrpc/mrpc_exit_l[0, 7]_b16_t99.json",
     "moveon_dict_path_2": "/home/slzhang/projects/ETBA/Train/moveon_dict/bert/qnli/qnli_exit_l[0, 6, 8]_b16_t99.json",
     "stage_num": 2,
-    "model_1": "posenet_l[0, 19]",
-    "model_2": "posenet_l[19, 33]",
+    "model_1": "bert_l[0, 7]",
+    "model_2": "bert_l[7, 12]",
     "model_3": "bert_l[8, 12]"
   }
   

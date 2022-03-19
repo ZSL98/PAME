@@ -674,7 +674,7 @@ std::vector<float> Profiler::execute(const bool separate_or_not, const size_t& n
 
         auto status_s2 = mContext_s2->enqueueV2(buffer_s2.getDeviceBindings().data(), stream_0, nullptr);
         if (!status_s2) {
-            std::cout << "Error when inferring S2 model" << std::endl;
+            std::cout << "Error when inferring S2 model~" << std::endl;
         }
 
         CUDACHECK(cudaDeviceSynchronize());
@@ -988,7 +988,7 @@ bool model_generation(std::string model_name, const int start_point, const int e
 
 int main(int argc, char** argv)
 {
-    int nGpuId = 0;
+    int nGpuId = 1;
     cudaSetDevice(nGpuId);
     // int leastPriority;
     // int greatestPriority;

@@ -230,7 +230,7 @@ class SwinTransformerBlock(nn.Module):
         norm_layer (nn.Module, optional): Normalization layer.  Default: nn.LayerNorm
     """
 
-    def __init__(self, dim, input_resolution, num_heads, window_size=7, shift_size=0,
+    def __init__(self, dim, input_resolution, num_heads, window_size=12, shift_size=0,
                  mlp_ratio=4., qkv_bias=True, qk_scale=None, drop=0., attn_drop=0., drop_path=0.,
                  act_layer=nn.GELU, norm_layer=nn.LayerNorm):
         super().__init__()
@@ -285,7 +285,7 @@ class SwinTransformerBlock(nn.Module):
     def forward(self, x):
         H, W = self.input_resolution
         B, L, C = x.shape
-        assert L == H * W, "input feature has wrong size"
+        # assert L == H * W, "input feature has wrong size"
 
         shortcut = x
         x = self.norm1(x)
@@ -313,6 +313,7 @@ class SwinTransformerBlock(nn.Module):
             x = torch.roll(shifted_x, shifts=(self.shift_size, self.shift_size), dims=(1, 2))
         else:
             x = shifted_x
+
         x = x.view(B, H * W, C)
 
         # FFN
@@ -362,7 +363,7 @@ class PatchMerging(nn.Module):
         """
         H, W = self.input_resolution
         B, L, C = x.shape
-        assert L == H * W, "input feature has wrong size"
+        # assert L == H * W, "input feature has wrong size"
         assert H % 2 == 0 and W % 2 == 0, f"x size ({H}*{W}) are not even."
 
         x = x.view(B, H, W, C)
@@ -463,14 +464,14 @@ class PatchEmbed(nn.Module):
     r""" Image to Patch Embedding
 
     Args:
-        img_size (int): Image size.  Default: 224.
+        img_size (int): Image size.  Default: 384.
         patch_size (int): Patch token size. Default: 4.
         in_chans (int): Number of input image channels. Default: 3.
-        embed_dim (int): Number of linear projection output channels. Default: 96.
+        embed_dim (int): Number of linear projection output channels. Default: 128.
         norm_layer (nn.Module, optional): Normalization layer. Default: None
     """
 
-    def __init__(self, img_size=224, patch_size=4, in_chans=3, embed_dim=96, norm_layer=None):
+    def __init__(self, img_size=384, patch_size=4, in_chans=3, embed_dim=128, norm_layer=None):
         super().__init__()
         img_size = to_2tuple(img_size)
         patch_size = to_2tuple(patch_size)
@@ -492,8 +493,8 @@ class PatchEmbed(nn.Module):
     def forward(self, x):
         B, C, H, W = x.shape
         # FIXME look at relaxing size constraints
-        assert H == self.img_size[0] and W == self.img_size[1], \
-            f"Input image size ({H}*{W}) doesn't match model ({self.img_size[0]}*{self.img_size[1]})."
+        # assert H == self.img_size[0] and W == self.img_size[1], \
+            # f"Input image size ({H}*{W}) doesn't match model ({self.img_size[0]}*{self.img_size[1]})."
         x = self.proj(x).flatten(2).transpose(1, 2)  # B Ph*Pw C
         if self.norm is not None:
             x = self.norm(x)
@@ -513,14 +514,14 @@ class SwinTransformer(nn.Module):
           https://arxiv.org/pdf/2103.14030
 
     Args:
-        img_size (int | tuple(int)): Input image size. Default 224
+        img_size (int | tuple(int)): Input image size. Default 384
         patch_size (int | tuple(int)): Patch size. Default: 4
         in_chans (int): Number of input image channels. Default: 3
         num_classes (int): Number of classes for classification head. Default: 1000
-        embed_dim (int): Patch embedding dimension. Default: 96
+        embed_dim (int): Patch embedding dimension. Default: 128
         depths (tuple(int)): Depth of each Swin Transformer layer.
         num_heads (tuple(int)): Number of attention heads in different layers.
-        window_size (int): Window size. Default: 7
+        window_size (int): Window size. Default: 12
         mlp_ratio (float): Ratio of mlp hidden dim to embedding dim. Default: 4
         qkv_bias (bool): If True, add a learnable bias to query, key, value. Default: True
         qk_scale (float): Override default qk scale of head_dim ** -0.5 if set. Default: None
@@ -533,9 +534,9 @@ class SwinTransformer(nn.Module):
         use_checkpoint (bool): Whether to use checkpointing to save memory. Default: False
     """
 
-    def __init__(self, img_size=224, patch_size=4, in_chans=3, num_classes=1000,
-                 embed_dim=96, depths=[2, 2, 6, 2], num_heads=[3, 6, 12, 24],
-                 window_size=7, mlp_ratio=4., qkv_bias=True, qk_scale=None,
+    def __init__(self, img_size=384, patch_size=4, in_chans=3, num_classes=1000,
+                 embed_dim=128, depths=[2, 2, 6, 2], num_heads=[4, 8, 16, 32],
+                 window_size=12, mlp_ratio=4., qkv_bias=True, qk_scale=None,
                  drop_rate=0., attn_drop_rate=0., drop_path_rate=0.1,
                  norm_layer=nn.LayerNorm, ape=False, patch_norm=True,
                  use_checkpoint=False, **kwargs):
@@ -638,9 +639,9 @@ class SwinTransformer(nn.Module):
 
 
 class SwinTransformer_s1(nn.Module):
-    def __init__(self, img_size=224, patch_size=4, in_chans=3, num_classes=1000,
+    def __init__(self, img_size=384, patch_size=4, in_chans=3, num_classes=1000,
                  embed_dim=128, depths=[2, 2, 10, 2], num_heads=[4, 8, 16, 32],
-                 window_size=7, mlp_ratio=4., qkv_bias=True, qk_scale=None,
+                 window_size=12, mlp_ratio=4., qkv_bias=True, qk_scale=None,
                  drop_rate=0., attn_drop_rate=0., drop_path_rate=0.5,
                  norm_layer=nn.LayerNorm, ape=False, patch_norm=True,
                  use_checkpoint=False, split_point=0, **kwargs):
@@ -738,6 +739,7 @@ class SwinTransformer_s1(nn.Module):
         x = self.pos_drop(x)
 
         for layer in self.layers:
+            # print(x.shape)
             x = layer(x)
 
         return x
@@ -753,10 +755,10 @@ class SwinTransformer_s1(nn.Module):
 
 
 class SwinTransformer_s2(nn.Module):
-    def __init__(self, img_size=224, patch_size=4, in_chans=3, num_classes=1000,
+    def __init__(self, img_size=384, patch_size=4, in_chans=3, num_classes=1000,
                  embed_dim=128, depths=[0, 0, 8, 2], num_heads=[4, 8, 16, 32],
-                 window_size=7, mlp_ratio=4., qkv_bias=True, qk_scale=None,
-                 drop_rate=0., attn_drop_rate=0., drop_path_rate=0.5,
+                 window_size=12, mlp_ratio=4., qkv_bias=True, qk_scale=None,
+                 drop_rate=0., attn_drop_rate=0., drop_path_rate=0,
                  norm_layer=nn.LayerNorm, ape=False, patch_norm=True,
                  use_checkpoint=False, split_point=0, **kwargs):
         super().__init__()
