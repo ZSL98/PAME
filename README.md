@@ -1,6 +1,7 @@
-# ETBA
-Early Termination in Batched Applications
-
+# PAME: Precision-Aware Multi-Exit DNN Serving for Reducing Latencies of Batched Inferences
+This is the code repository of the ICS'22 paper: 
+PAME: Precision-Aware Multi-Exit DNN Serving for Reducing Latencies of Batched Inferences
+The key concept of this work is to add and train exits for DNN networks. Then decide for samples to choose exit paths at the inference stage.
 
 ## Early Exit in Inference
 
